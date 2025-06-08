@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -13,6 +14,10 @@ import java.util.UUID;
 public class WorkOrderService {
 
     private final WorkOrderRepository repo;
+
+    public List<WorkOrder> getAll() {
+        return repo.findAll();
+    }
 
     @Transactional
     public WorkOrder create(WorkOrder dto) {
