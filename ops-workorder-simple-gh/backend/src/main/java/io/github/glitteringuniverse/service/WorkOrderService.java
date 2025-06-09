@@ -249,11 +249,16 @@ public class WorkOrderService {
     }
     
     private List<User> getApproversForWorkOrder(WorkOrder workOrder) {
-        // 简化逻辑：高优先级需要部门经理审批，其他需要审批员审批
+        // 简化逻辑：高优先级需要部门经理审批，其他优先级也可以由部门经理审批
         if (workOrder.getPriority() == WorkOrder.Priority.HIGH) {
             return userRepository.findByRole(User.Role.DEPT_MANAGER);
         } else {
-            return userRepository.findByRole(User.Role.APPROVER);
+            // 先尝试找专门的审批员，如果没有就使用部门经理
+            List<User> approvers = userRepository.findByRole(User.Role.APPROVER);
+            if (approvers.isEmpty()) {
+                return userRepository.findByRole(User.Role.DEPT_MANAGER);
+            }
+            return approvers;
         }
     }
     

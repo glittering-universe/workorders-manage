@@ -157,10 +157,9 @@ const createWorkOrder = async () => {
   loading.value = true
   try {
     const payload = {
-      ...newWorkOrder,
-      creatorId: currentUser.value?.id
+      ...newWorkOrder
     }
-    const response = await axios.post(`${apiBase}/orders`, payload)
+    const response = await axios.post(`${apiBase}/orders?creatorId=${currentUser.value?.id}`, payload)
     workOrders.value.push(response.data)
     
     // 重置表单
@@ -184,7 +183,7 @@ const createWorkOrder = async () => {
 const submitWorkOrder = async (id: number) => {
   loading.value = true
   try {
-    const response = await axios.post(`${apiBase}/orders/${id}/submit`)
+    const response = await axios.post(`${apiBase}/orders/${id}/submit?userId=${currentUser.value?.id}`)
     const index = workOrders.value.findIndex(wo => wo.id === id)
     if (index !== -1) {
       workOrders.value[index] = response.data
@@ -202,10 +201,9 @@ const approveWorkOrder = async (id: number) => {
   loading.value = true
   try {
     const payload = {
-      approverId: currentUser.value?.id,
       comment: '审批通过'
     }
-    const response = await axios.post(`${apiBase}/orders/${id}/approve`, payload)
+    const response = await axios.post(`${apiBase}/orders/${id}/approve?approverId=${currentUser.value?.id}`, payload)
     const index = workOrders.value.findIndex(wo => wo.id === id)
     if (index !== -1) {
       workOrders.value[index] = response.data
@@ -222,7 +220,7 @@ const approveWorkOrder = async (id: number) => {
 const assignWorkOrder = async (id: number, operatorId: number) => {
   loading.value = true
   try {
-    const response = await axios.post(`${apiBase}/orders/${id}/assign/${operatorId}`)
+    const response = await axios.post(`${apiBase}/orders/${id}/assign?assigneeId=${operatorId}&assignerId=${currentUser.value?.id}`)
     const index = workOrders.value.findIndex(wo => wo.id === id)
     if (index !== -1) {
       workOrders.value[index] = response.data
@@ -239,7 +237,10 @@ const assignWorkOrder = async (id: number, operatorId: number) => {
 const completeWorkOrder = async (id: number) => {
   loading.value = true
   try {
-    const response = await axios.post(`${apiBase}/orders/${id}/complete`)
+    const payload = {
+      comment: '工单已完成'
+    }
+    const response = await axios.post(`${apiBase}/orders/${id}/complete?operatorId=${currentUser.value?.id}`, payload)
     const index = workOrders.value.findIndex(wo => wo.id === id)
     if (index !== -1) {
       workOrders.value[index] = response.data
@@ -429,7 +430,7 @@ onMounted(() => {
         </div>
         <div class="header-right">
           <span class="user-info">
-            {{ currentUser.realName }} ({{ getRoleText(currentUser.role) }})
+            {{ currentUser?.realName }} ({{ currentUser ? getRoleText(currentUser.role) : '' }})
           </span>
           <button @click="logout" class="btn btn-secondary btn-sm">退出登录</button>
         </div>
@@ -450,14 +451,14 @@ onMounted(() => {
           📋 工单管理
         </button>
         <button 
-          v-if="['ADMIN', 'DEPT_MANAGER'].includes(currentUser.role)"
+          v-if="currentUser && ['ADMIN', 'DEPT_MANAGER'].includes(currentUser.role)"
           :class="['nav-tab', { active: activeTab === 'users' }]"
           @click="activeTab = 'users'"
         >
           👥 用户管理
         </button>
         <button 
-          v-if="['ADMIN', 'DEPT_MANAGER', 'APPROVER'].includes(currentUser.role)"
+          v-if="currentUser && ['ADMIN', 'DEPT_MANAGER', 'APPROVER'].includes(currentUser.role)"
           :class="['nav-tab', { active: activeTab === 'approval' }]"
           @click="activeTab = 'approval'"
         >
@@ -637,7 +638,7 @@ onMounted(() => {
                 <div class="actions">
                   <!-- 提交工单 -->
                   <button 
-                    v-if="workOrder.status === 'DRAFT' && workOrder.creatorId === currentUser.id"
+                    v-if="workOrder.status === 'DRAFT' && currentUser && workOrder.creatorId === currentUser.id"
                     @click="submitWorkOrder(workOrder.id!)" 
                     :disabled="loading"
                     class="btn btn-primary btn-sm"
@@ -647,7 +648,7 @@ onMounted(() => {
                   
                   <!-- 审批工单 -->
                   <button 
-                    v-if="workOrder.status === 'SUBMITTED' && ['ADMIN', 'DEPT_MANAGER', 'APPROVER'].includes(currentUser.role)"
+                    v-if="workOrder.status === 'SUBMITTED' && currentUser && ['ADMIN', 'DEPT_MANAGER', 'APPROVER'].includes(currentUser.role)"
                     @click="approveWorkOrder(workOrder.id!)" 
                     :disabled="loading"
                     class="btn btn-success btn-sm"
@@ -657,7 +658,7 @@ onMounted(() => {
                   
                   <!-- 分派工单 -->
                   <select 
-                    v-if="workOrder.status === 'APPROVED' && ['ADMIN', 'DEPT_MANAGER'].includes(currentUser.role)"
+                    v-if="workOrder.status === 'APPROVED' && currentUser && ['ADMIN', 'DEPT_MANAGER'].includes(currentUser.role)"
                     @change="assignWorkOrder(workOrder.id!, parseInt($event.target.value))"
                     class="form-control btn-sm assign-select"
                   >
@@ -674,7 +675,7 @@ onMounted(() => {
                   <!-- 完成工单 -->
                   <button 
                     v-if="(workOrder.status === 'ASSIGNED' || workOrder.status === 'IN_PROGRESS') && 
-                           (workOrder.assigneeId === currentUser.id || ['ADMIN'].includes(currentUser.role))"
+                           currentUser && (workOrder.assigneeId === currentUser.id || ['ADMIN'].includes(currentUser.role))"
                     @click="completeWorkOrder(workOrder.id!)" 
                     :disabled="loading"
                     class="btn btn-warning btn-sm"
@@ -736,13 +737,19 @@ onMounted(() => {
                 <p><strong>创建时间:</strong> {{ order.createdAt ? new Date(order.createdAt).toLocaleString() : '未知' }}</p>
                 <div class="approval-actions">
                   <button 
+                    v-if="currentUser && ['ADMIN', 'DEPT_MANAGER', 'APPROVER'].includes(currentUser.role)"
                     @click="approveWorkOrder(order.id!)" 
                     :disabled="loading"
                     class="btn btn-success btn-sm"
                   >
                     批准
                   </button>
-                  <button class="btn btn-danger btn-sm">拒绝</button>
+                  <button 
+                    v-if="currentUser && ['ADMIN', 'DEPT_MANAGER', 'APPROVER'].includes(currentUser.role)"
+                    class="btn btn-danger btn-sm"
+                  >
+                    拒绝
+                  </button>
                 </div>
               </div>
             </div>
@@ -1178,11 +1185,12 @@ onMounted(() => {
 }
 
 .user-count {
-  background: #e9ecef;
+  background: #007bff;
   padding: 5px 10px;
   border-radius: 15px;
   font-size: 14px;
-  color: #666;
+  color: white;
+  font-weight: 600;
 }
 
 /* Modal Styles */
