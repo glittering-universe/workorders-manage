@@ -43,6 +43,9 @@ interface Statistics {
   overdueOrders: number
   averageProcessingTime: number
   onTimeCompletionRate: number
+  submittedOrders?: number
+  approvedOrders?: number
+  rejectedOrders?: number
 }
 
 // 全局状态
@@ -55,20 +58,148 @@ const activeTab = ref('dashboard')
 const showCreateForm = ref(false)
 const showLoginModal = ref(true)
 
+// 审批相关状态
+const pendingApprovals = ref<WorkOrder[]>([])
+
+// 过滤状态
+const statusFilter = ref<string>('')
+const isOverdueFilter = ref(false)
+
 // 登录表单
 const loginForm = reactive({
   username: '',
   password: ''
 })
 
-// 新工单表单
-const newWorkOrder = reactive<WorkOrder>({
-  title: '',
-  description: '',
-  category: 'MAINTENANCE',
-  priority: 'MEDIUM',
-  slaMinutes: 240
+// 新用户表单
+const newUser = reactive({
+  username: '',
+  password: '',
+  realName: '',
+  email: '',
+  phone: '',
+  role: 'USER',
+  department: 'IT_DEPT',
+  organizationLevel: '市级'
 })
+
+// 控制创建用户表单显示
+const showCreateUserForm = ref(false)
+
+// 分派中心
+const showDispatchCenter = ref(false)
+const selectedWorkOrderIds = ref<number[]>([])
+const dispatchAssigneeId = ref<number | null>(null)
+
+// 工单详情
+const selectedWorkOrder = ref<WorkOrder | null>(null)
+const showWorkOrderDetail = ref(false)
+
+const viewWorkOrderDetail = (workOrder: WorkOrder) => {
+  selectedWorkOrder.value = workOrder
+  showWorkOrderDetail.value = true
+}
+
+const closeWorkOrderDetail = () => {
+  selectedWorkOrder.value = null
+  showWorkOrderDetail.value = false
+}
+
+// 分派中心功能
+const openDispatchCenter = () => {
+  showDispatchCenter.value = true
+  selectedWorkOrderIds.value = []
+  dispatchAssigneeId.value = null
+}
+
+const closeDispatchCenter = () => {
+  showDispatchCenter.value = false
+  selectedWorkOrderIds.value = []
+  dispatchAssigneeId.value = null
+}
+
+const toggleWorkOrderSelection = (workOrderId: number) => {
+  const index = selectedWorkOrderIds.value.indexOf(workOrderId)
+  if (index > -1) {
+    selectedWorkOrderIds.value.splice(index, 1)
+  } else {
+    selectedWorkOrderIds.value.push(workOrderId)
+  }
+}
+
+const executeDispatch = async () => {
+  if (selectedWorkOrderIds.value.length === 0 || !dispatchAssigneeId.value) {
+    alert('请选择工单和分派对象')
+    return
+  }
+  
+  await batchAssignWorkOrders(selectedWorkOrderIds.value, dispatchAssigneeId.value)
+  closeDispatchCenter()
+}
+
+// 编辑草稿工单
+const editingWorkOrder = ref<WorkOrder | null>(null)
+const showEditForm = ref(false)
+
+const editWorkOrder = (workOrder: WorkOrder) => {
+  editingWorkOrder.value = { ...workOrder }
+  showEditForm.value = true
+}
+
+const updateWorkOrder = async () => {
+  if (!editingWorkOrder.value) return
+  
+  loading.value = true
+  try {
+    const payload = {
+      title: editingWorkOrder.value.title,
+      description: editingWorkOrder.value.description,
+      category: editingWorkOrder.value.category,
+      priority: editingWorkOrder.value.priority,
+      slaMinutes: editingWorkOrder.value.slaMinutes
+    }
+    
+    const response = await axios.put(`${apiBase}/orders/${editingWorkOrder.value.id}`, payload)
+    const index = workOrders.value.findIndex(wo => wo.id === editingWorkOrder.value!.id)
+    if (index !== -1) {
+      workOrders.value[index] = response.data
+    }
+    
+    showEditForm.value = false
+    editingWorkOrder.value = null
+    alert('工单更新成功！')
+  } catch (error) {
+    console.error('更新工单失败:', error)
+    alert('更新工单失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const cancelEdit = () => {
+  showEditForm.value = false
+  editingWorkOrder.value = null
+}
+
+// 仪表板点击过滤
+const filterByStatus = (status: string) => {
+  activeTab.value = 'workorders'
+  statusFilter.value = status
+}
+
+const filterOverdue = () => {
+  activeTab.value = 'workorders'
+  isOverdueFilter.value = true
+  statusFilter.value = ''
+}
+
+// Remove duplicate - using the role-based filteredWorkOrders below
+
+// 清除过滤器
+const clearFilters = () => {
+  statusFilter.value = ''
+  isOverdueFilter.value = false
+}
 
 const apiBase = 'http://localhost:8080/api'
 
@@ -110,8 +241,22 @@ const loadData = async () => {
   await Promise.all([
     loadWorkOrders(),
     loadUsers(),
-    loadStatistics()
+    loadStatistics(),
+    loadPendingApprovals()
   ])
+}
+
+const loadPendingApprovals = async () => {
+  if (!currentUser.value || !['ADMIN', 'DEPT_MANAGER', 'APPROVER'].includes(currentUser.value.role)) {
+    return
+  }
+  
+  try {
+    const response = await axios.get(`${apiBase}/orders/pending-approvals?userId=${currentUser.value.id}`)
+    pendingApprovals.value = response.data
+  } catch (error) {
+    console.error('加载待审批工单失败:', error)
+  }
 }
 
 const loadWorkOrders = async () => {
@@ -150,6 +295,45 @@ const loadStatistics = async () => {
     } catch (fallbackError) {
       console.error('加载今日统计数据也失败:', fallbackError)
     }
+  }
+}
+
+// 新工单表单
+const newWorkOrder = reactive<WorkOrder>({
+  title: '',
+  description: '',
+  category: 'MAINTENANCE',
+  priority: 'MEDIUM',
+  slaMinutes: 240
+})
+
+const createUser = async () => {
+  loading.value = true
+  try {
+    const userData = {
+      ...newUser
+    }
+    const response = await axios.post(`${apiBase}/users`, userData)
+    users.value.push(response.data)
+    
+    // 重置表单
+    Object.assign(newUser, {
+      username: '',
+      password: '',
+      realName: '',
+      email: '',
+      phone: '',
+      role: 'USER',
+      department: 'IT_DEPT',
+      organizationLevel: '市级'
+    })
+    showCreateUserForm.value = false
+    alert('用户创建成功！')
+  } catch (error) {
+    console.error('创建用户失败:', error)
+    alert('创建用户失败，请检查输入或联系管理员')
+  } finally {
+    loading.value = false
   }
 }
 
@@ -254,6 +438,32 @@ const completeWorkOrder = async (id: number) => {
   }
 }
 
+// 批量分派工单
+const batchAssignWorkOrders = async (workOrderIds: number[], assigneeId: number) => {
+  loading.value = true
+  try {
+    const promises = workOrderIds.map(id => 
+      axios.post(`${apiBase}/orders/${id}/assign?assigneeId=${assigneeId}&assignerId=${currentUser.value?.id}`)
+    )
+    const responses = await Promise.all(promises)
+    
+    // 更新本地工单数据
+    responses.forEach((response, index) => {
+      const workOrderIndex = workOrders.value.findIndex(wo => wo.id === workOrderIds[index])
+      if (workOrderIndex !== -1) {
+        workOrders.value[workOrderIndex] = response.data
+      }
+    })
+    
+    alert(`成功分派 ${workOrderIds.length} 个工单！`)
+  } catch (error) {
+    console.error('批量分派工单失败:', error)
+    alert('批量分派工单失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 // 工具函数
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -334,27 +544,57 @@ const filteredWorkOrders = computed(() => {
   const userRole = currentUser.value.role
   const userId = currentUser.value.id
   
+  // 首先基于角色过滤工单
+  let roleFilteredOrders: WorkOrder[] = []
   switch (userRole) {
     case 'ADMIN':
-      return workOrders.value
+      roleFilteredOrders = workOrders.value
+      break
     case 'DEPT_MANAGER':
     case 'APPROVER':
-      return workOrders.value.filter(wo => 
+      roleFilteredOrders = workOrders.value.filter(wo => 
         wo.creatorId === userId || 
         wo.approverId === userId ||
         wo.status === 'SUBMITTED' ||
         wo.status === 'APPROVING'
       )
+      break
     case 'OPERATOR':
-      return workOrders.value.filter(wo => 
+      roleFilteredOrders = workOrders.value.filter(wo => 
         wo.assigneeId === userId || 
         wo.status === 'APPROVED' ||
         wo.status === 'ASSIGNED'
       )
+      break
     case 'USER':
     default:
-      return workOrders.value.filter(wo => wo.creatorId === userId)
+      roleFilteredOrders = workOrders.value.filter(wo => wo.creatorId === userId)
+      break
   }
+  
+  // 然后应用状态和逾期过滤
+  let filtered = roleFilteredOrders
+  
+  // 状态过滤
+  if (statusFilter.value) {
+    if (statusFilter.value === 'PROCESSING') {
+      filtered = filtered.filter(wo => 
+        ['SUBMITTED', 'APPROVING', 'APPROVED', 'ASSIGNED', 'IN_PROGRESS'].includes(wo.status || '')
+      )
+    } else {
+      filtered = filtered.filter(wo => wo.status === statusFilter.value)
+    }
+  }
+  
+  // 逾期过滤
+  if (isOverdueFilter.value) {
+    const now = new Date()
+    filtered = filtered.filter(wo => 
+      wo.deadline && new Date(wo.deadline) < now && wo.status !== 'COMPLETED'
+    )
+  }
+  
+  return filtered
 })
 
 onMounted(() => {
@@ -465,6 +705,13 @@ onMounted(() => {
           ✅ 审批中心
         </button>
         <button 
+          v-if="currentUser && ['ADMIN', 'DEPT_MANAGER'].includes(currentUser.role)"
+          :class="['nav-tab', { active: activeTab === 'dispatch' }]"
+          @click="activeTab = 'dispatch'"
+        >
+          🚀 分派中心
+        </button>
+        <button 
           :class="['nav-tab', { active: activeTab === 'statistics' }]"
           @click="activeTab = 'statistics'"
         >
@@ -477,27 +724,27 @@ onMounted(() => {
         <div class="dashboard">
           <h2>系统概览</h2>
           <div class="stats-grid" v-if="statistics">
-            <div class="stat-card">
+            <div class="stat-card clickable" @click="activeTab = 'workorders'">
               <div class="stat-number">{{ statistics.totalOrders }}</div>
               <div class="stat-label">总工单数</div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card clickable" @click="filterByStatus('COMPLETED')">
               <div class="stat-number">{{ statistics.completedOrders }}</div>
               <div class="stat-label">已完成工单</div>
             </div>
-            <div class="stat-card">
-              <div class="stat-number">{{ statistics.submittedOrders + statistics.approvedOrders + statistics.rejectedOrders }}</div>
+            <div class="stat-card clickable" @click="filterByStatus('PROCESSING')">
+              <div class="stat-number">{{ (statistics.submittedOrders || 0) + (statistics.approvedOrders || 0) + (statistics.rejectedOrders || 0) }}</div>
               <div class="stat-label">处理中工单</div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card clickable warning" @click="filterOverdue()">
               <div class="stat-number">{{ statistics.overdueOrders }}</div>
               <div class="stat-label">逾期工单</div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card success">
               <div class="stat-number">{{ statistics.onTimeCompletionRate.toFixed(1) }}%</div>
               <div class="stat-label">按时完成率</div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card info">
               <div class="stat-number">{{ statistics.averageProcessingTime.toFixed(1) }}h</div>
               <div class="stat-label">平均处理时间</div>
             </div>
@@ -533,6 +780,22 @@ onMounted(() => {
             <button @click="showCreateForm = !showCreateForm" class="btn btn-primary">
               {{ showCreateForm ? '取消' : '创建工单' }}
             </button>
+          </div>
+
+          <!-- 过滤器状态栏 -->
+          <div v-if="statusFilter || isOverdueFilter" class="filter-bar">
+            <div class="active-filters">
+              <span class="filter-label">当前过滤:</span>
+              <span v-if="statusFilter" class="filter-tag">
+                状态: {{ statusFilter === 'PROCESSING' ? '处理中' : getStatusText(statusFilter) }}
+                <button @click="statusFilter = ''" class="filter-remove">&times;</button>
+              </span>
+              <span v-if="isOverdueFilter" class="filter-tag">
+                逾期工单
+                <button @click="isOverdueFilter = false" class="filter-remove">&times;</button>
+              </span>
+              <button @click="clearFilters" class="btn btn-sm btn-secondary">清空所有过滤器</button>
+            </div>
           </div>
 
           <!-- 创建工单表单 -->
@@ -605,7 +868,9 @@ onMounted(() => {
               <p>暂无工单，点击上方按钮创建第一个工单</p>
             </div>
             
-            <div v-for="workOrder in filteredWorkOrders" :key="workOrder.id" class="workorder-card">
+            <div v-for="workOrder in filteredWorkOrders" :key="workOrder.id" 
+                 class="workorder-card clickable-card" 
+                 @click="viewWorkOrderDetail(workOrder)">
               <div class="card-header">
                 <div class="card-title">
                   <span class="wo-code">{{ workOrder.woCode }}</span>
@@ -635,7 +900,17 @@ onMounted(() => {
                   </div>
                 </div>
                 
-                <div class="actions">
+                <div class="actions" @click.stop>
+                  <!-- 编辑草稿工单 -->
+                  <button 
+                    v-if="workOrder.status === 'DRAFT' && currentUser && workOrder.creatorId === currentUser.id"
+                    @click="editWorkOrder(workOrder)" 
+                    :disabled="loading"
+                    class="btn btn-secondary btn-sm"
+                  >
+                    编辑
+                  </button>
+                  
                   <!-- 提交工单 -->
                   <button 
                     v-if="workOrder.status === 'DRAFT' && currentUser && workOrder.creatorId === currentUser.id"
@@ -659,7 +934,7 @@ onMounted(() => {
                   <!-- 分派工单 -->
                   <select 
                     v-if="workOrder.status === 'APPROVED' && currentUser && ['ADMIN', 'DEPT_MANAGER'].includes(currentUser.role)"
-                    @change="assignWorkOrder(workOrder.id!, parseInt($event.target.value))"
+                    @change="assignWorkOrder(workOrder.id!, parseInt(($event.target as HTMLSelectElement).value))"
                     class="form-control btn-sm assign-select"
                   >
                     <option value="">选择运维人员</option>
@@ -694,7 +969,119 @@ onMounted(() => {
         <div class="user-management">
           <div class="section-header">
             <h2>用户管理</h2>
-            <span class="user-count">共 {{ users.length }} 个用户</span>
+            <div class="header-actions">
+              <span class="user-count">共 {{ users.length }} 个用户</span>
+              <button 
+                v-if="currentUser && ['ADMIN', 'DEPT_MANAGER'].includes(currentUser.role)"
+                @click="showCreateUserForm = true" 
+                class="btn btn-primary btn-sm"
+              >
+                创建用户
+              </button>
+            </div>
+          </div>
+
+          <!-- 创建用户表单 -->
+          <div v-if="showCreateUserForm" class="create-form">
+            <h3>创建新用户</h3>
+            <form @submit.prevent="createUser">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>用户名:</label>
+                  <input 
+                    v-model="newUser.username" 
+                    type="text" 
+                    required 
+                    placeholder="请输入用户名"
+                    class="form-control"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>密码:</label>
+                  <input 
+                    v-model="newUser.password" 
+                    type="password" 
+                    required 
+                    placeholder="请输入密码"
+                    class="form-control"
+                  />
+                </div>
+              </div>
+              
+              <div class="form-row">
+                <div class="form-group">
+                  <label>真实姓名:</label>
+                  <input 
+                    v-model="newUser.realName" 
+                    type="text" 
+                    required 
+                    placeholder="请输入真实姓名"
+                    class="form-control"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>邮箱:</label>
+                  <input 
+                    v-model="newUser.email" 
+                    type="email" 
+                    placeholder="请输入邮箱"
+                    class="form-control"
+                  />
+                </div>
+              </div>
+              
+              <div class="form-row">
+                <div class="form-group">
+                  <label>电话:</label>
+                  <input 
+                    v-model="newUser.phone" 
+                    type="tel" 
+                    placeholder="请输入电话号码"
+                    class="form-control"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>角色:</label>
+                  <select v-model="newUser.role" class="form-control">
+                    <option value="USER">普通用户</option>
+                    <option value="OPERATOR">运维人员</option>
+                    <option value="APPROVER" v-if="currentUser && currentUser.role === 'ADMIN'">审批员</option>
+                    <option value="DEPT_MANAGER" v-if="currentUser && currentUser.role === 'ADMIN'">部门经理</option>
+                    <option value="ADMIN" v-if="currentUser && currentUser.role === 'ADMIN'">系统管理员</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label>部门:</label>
+                  <select v-model="newUser.department" class="form-control">
+                    <option value="IT_DEPT">IT部门</option>
+                    <option value="NETWORK_DEPT">网络部门</option>
+                    <option value="SECURITY_DEPT">安全部门</option>
+                    <option value="MAINTENANCE">维护部门</option>
+                    <option value="BUSINESS_DEPT">业务部门</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>组织级别:</label>
+                  <select v-model="newUser.organizationLevel" class="form-control">
+                    <option value="省级">省级</option>
+                    <option value="市级">市级</option>
+                    <option value="区县级">区县级</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div class="form-actions">
+                <button type="submit" :disabled="loading" class="btn btn-success">
+                  {{ loading ? '创建中...' : '创建用户' }}
+                </button>
+                <button type="button" @click="showCreateUserForm = false" class="btn btn-secondary">
+                  取消
+                </button>
+              </div>
+            </form>
           </div>
           
           <div v-if="users.length === 0" class="empty-state">
@@ -798,6 +1185,286 @@ onMounted(() => {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 分派中心 -->
+      <div v-if="activeTab === 'dispatch'" class="tab-content">
+        <div class="dispatch-center">
+          <div class="section-header">
+            <h2>🚀 分派中心</h2>
+            <div class="dispatch-stats">
+              <span class="stat-badge">
+                待分派: {{ workOrders.filter(wo => wo.status === 'APPROVED').length }}
+              </span>
+              <span class="stat-badge">
+                已分派: {{ workOrders.filter(wo => wo.status === 'ASSIGNED').length }}
+              </span>
+            </div>
+          </div>
+
+          <div class="dispatch-controls">
+            <div class="bulk-actions">
+              <select v-model="dispatchAssigneeId" class="form-control">
+                <option value="">选择运维人员</option>
+                <option 
+                  v-for="user in users.filter(u => u.role === 'OPERATOR')" 
+                  :key="user.id" 
+                  :value="user.id"
+                >
+                  {{ user.realName }} ({{ getDepartmentText(user.department) }})
+                </option>
+              </select>
+              <button 
+                @click="executeDispatch" 
+                :disabled="selectedWorkOrderIds.length === 0 || !dispatchAssigneeId || loading"
+                class="btn btn-primary"
+              >
+                批量分派 ({{ selectedWorkOrderIds.length }})
+              </button>
+              <button 
+                @click="selectedWorkOrderIds = []" 
+                :disabled="selectedWorkOrderIds.length === 0"
+                class="btn btn-secondary"
+              >
+                清空选择
+              </button>
+            </div>
+            <div class="filter-info">
+              <span v-if="selectedWorkOrderIds.length > 0" class="selection-info">
+                已选择 {{ selectedWorkOrderIds.length }} 个工单
+              </span>
+            </div>
+          </div>
+
+          <div class="dispatch-workorders">
+            <div v-if="workOrders.filter(wo => wo.status === 'APPROVED' || wo.status === 'ASSIGNED').length === 0" class="empty-state">
+              <p>暂无需要分派的工单</p>
+            </div>
+            
+            <div v-for="workOrder in workOrders.filter(wo => wo.status === 'APPROVED' || wo.status === 'ASSIGNED')" 
+                 :key="workOrder.id" 
+                 class="dispatch-card"
+                 :class="{ selected: selectedWorkOrderIds.includes(workOrder.id!) }"
+            >
+              <div class="dispatch-header">
+                <div class="selection-controls">
+                  <input 
+                    type="checkbox" 
+                    :checked="selectedWorkOrderIds.includes(workOrder.id!)"
+                    @change="toggleWorkOrderSelection(workOrder.id!)"
+                    class="dispatch-checkbox"
+                  />
+                  <span class="wo-code">{{ workOrder.woCode }}</span>
+                </div>
+                <span 
+                  class="status-badge" 
+                  :style="{ backgroundColor: getStatusColor(workOrder.status || '') }"
+                >
+                  {{ getStatusText(workOrder.status || '') }}
+                </span>
+              </div>
+              
+              <div class="dispatch-body">
+                <h4>{{ workOrder.title }}</h4>
+                <div class="dispatch-details">
+                  <div class="detail-row">
+                    <span class="detail-item">分类: {{ getCategoryText(workOrder.category) }}</span>
+                    <span class="detail-item">优先级: {{ getPriorityText(workOrder.priority) }}</span>
+                    <span class="detail-item">SLA: {{ workOrder.slaMinutes }}分钟</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-item">创建人: {{ workOrder.creatorName || '未知' }}</span>
+                    <span class="detail-item">
+                      当前处理人: {{ workOrder.assigneeName || '未分派' }}
+                    </span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-item">创建时间: {{ workOrder.createdAt ? new Date(workOrder.createdAt).toLocaleString() : '未知' }}</span>
+                  </div>
+                </div>
+                
+                <div class="individual-actions">
+                  <select 
+                    @change="assignWorkOrder(workOrder.id!, parseInt(($event.target as HTMLSelectElement).value))"
+                    class="form-control btn-sm assign-select"
+                  >
+                    <option value="">单独分派给...</option>
+                    <option 
+                      v-for="user in users.filter(u => u.role === 'OPERATOR')" 
+                      :key="user.id" 
+                      :value="user.id"
+                    >
+                      {{ user.realName }}
+                    </option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 工单详情模态框 -->
+    <div v-if="showWorkOrderDetail && selectedWorkOrder" class="modal-overlay" @click="closeWorkOrderDetail">
+      <div class="modal detail-modal" @click.stop>
+        <div class="modal-header">
+          <h2>📋 工单详情</h2>
+          <button @click="closeWorkOrderDetail" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="detail-section">
+            <h3>基本信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>工单编号:</label>
+                <span>{{ selectedWorkOrder.woCode }}</span>
+              </div>
+              <div class="detail-item">
+                <label>标题:</label>
+                <span>{{ selectedWorkOrder.title }}</span>
+              </div>
+              <div class="detail-item">
+                <label>状态:</label>
+                <span class="status-badge" :style="{ backgroundColor: getStatusColor(selectedWorkOrder.status || '') }">
+                  {{ getStatusText(selectedWorkOrder.status || '') }}
+                </span>
+              </div>
+              <div class="detail-item">
+                <label>分类:</label>
+                <span>{{ getCategoryText(selectedWorkOrder.category) }}</span>
+              </div>
+              <div class="detail-item">
+                <label>优先级:</label>
+                <span>{{ getPriorityText(selectedWorkOrder.priority) }}</span>
+              </div>
+              <div class="detail-item">
+                <label>SLA时间:</label>
+                <span>{{ selectedWorkOrder.slaMinutes }}分钟</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h3>人员信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>创建人:</label>
+                <span>{{ selectedWorkOrder.creatorName || '未知' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>审批人:</label>
+                <span>{{ selectedWorkOrder.approverName || '待审批' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>处理人:</label>
+                <span>{{ selectedWorkOrder.assigneeName || '未分派' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h3>时间信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>创建时间:</label>
+                <span>{{ selectedWorkOrder.createdAt ? new Date(selectedWorkOrder.createdAt).toLocaleString() : '未知' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>更新时间:</label>
+                <span>{{ selectedWorkOrder.updatedAt ? new Date(selectedWorkOrder.updatedAt).toLocaleString() : '未知' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>截止时间:</label>
+                <span>{{ selectedWorkOrder.deadline ? new Date(selectedWorkOrder.deadline).toLocaleString() : '未设置' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>完成时间:</label>
+                <span>{{ selectedWorkOrder.completedAt ? new Date(selectedWorkOrder.completedAt).toLocaleString() : '未完成' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="selectedWorkOrder.description" class="detail-section">
+            <h3>详细描述</h3>
+            <div class="description-content">
+              {{ selectedWorkOrder.description }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 编辑工单模态框 -->
+    <div v-if="showEditForm && editingWorkOrder" class="modal-overlay" @click="cancelEdit">
+      <div class="modal edit-modal" @click.stop>
+        <div class="modal-header">
+          <h2>✏️ 编辑工单</h2>
+          <button @click="cancelEdit" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form @submit.prevent="updateWorkOrder">
+            <div class="form-group">
+              <label>工单标题:</label>
+              <input 
+                v-model="editingWorkOrder.title" 
+                type="text" 
+                required 
+                class="form-control"
+              />
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label>分类:</label>
+                <select v-model="editingWorkOrder.category" class="form-control">
+                  <option value="MAINTENANCE">维护</option>
+                  <option value="INCIDENT">故障</option>
+                  <option value="REQUEST">请求</option>
+                  <option value="CHANGE">变更</option>
+                  <option value="EMERGENCY">紧急</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>优先级:</label>
+                <select v-model="editingWorkOrder.priority" class="form-control">
+                  <option value="HIGH">高</option>
+                  <option value="MEDIUM">中</option>
+                  <option value="LOW">低</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label>SLA时间 (分钟):</label>
+              <input 
+                v-model.number="editingWorkOrder.slaMinutes" 
+                type="number" 
+                min="1" 
+                required 
+                class="form-control"
+              />
+            </div>
+            
+            <div class="form-group">
+              <label>详细描述:</label>
+              <textarea 
+                v-model="editingWorkOrder.description" 
+                rows="4" 
+                class="form-control"
+              ></textarea>
+            </div>
+            
+            <div class="form-actions">
+              <button type="submit" :disabled="loading" class="btn btn-success">
+                {{ loading ? '更新中...' : '保存更改' }}
+              </button>
+              <button type="button" @click="cancelEdit" class="btn btn-secondary">
+                取消
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
@@ -992,9 +1659,36 @@ onMounted(() => {
 
 .stat-card {
   background: #f8f9fa;
-  padding: 15px;
-  border-radius: 10px;
+  padding: 20px;
+  border-radius: 12px;
   box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.stat-card.clickable {
+  cursor: pointer;
+}
+
+.stat-card.clickable:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+  border-color: #007bff;
+}
+
+.stat-card.success {
+  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+  border-color: #28a745;
+}
+
+.stat-card.warning {
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeeba 100%);
+  border-color: #ffc107;
+}
+
+.stat-card.info {
+  background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+  border-color: #17a2b8;
 }
 
 .stat-number {
@@ -1205,6 +1899,8 @@ onMounted(() => {
   justify-content: center;
   align-items: center;
   z-index: 1000;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.3s ease-out;
 }
 
 .modal {
@@ -1212,8 +1908,127 @@ onMounted(() => {
   padding: 30px;
   border-radius: 15px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-  max-width: 400px;
+  max-width: 500px;
   width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  animation: slideIn 0.3s ease-out;
+}
+
+.detail-modal {
+  max-width: 700px;
+}
+
+.edit-modal {
+  max-width: 600px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from { 
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 25px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.modal-header h2 {
+  margin: 0;
+  color: #333;
+  font-size: 24px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 30px;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.close-btn:hover {
+  background: #f0f0f0;
+  color: #333;
+  transform: rotate(90deg);
+}
+
+.detail-section {
+  margin-bottom: 25px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 10px;
+  border-left: 4px solid #007bff;
+}
+
+.detail-section h3 {
+  margin: 0 0 15px 0;
+  color: #333;
+  font-size: 18px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.detail-item label {
+  font-weight: 600;
+  color: #666;
+  font-size: 14px;
+}
+
+.detail-item span {
+  color: #333;
+  font-size: 14px;
+}
+
+.description-content {
+  background: white;
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  line-height: 1.6;
+  color: #333;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
 }
 
 .modal-header {
@@ -1432,6 +2247,231 @@ onMounted(() => {
   .detail-row {
     flex-direction: column;
     gap: 5px;
+  }
+}
+
+/* Dispatch Center Styles */
+.dispatch-center {
+  background: white;
+  padding: 25px;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.dispatch-stats {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.stat-badge {
+  background: #f8f9fa;
+  padding: 8px 15px;
+  border-radius: 15px;
+  font-size: 14px;
+  color: #666;
+  border: 1px solid #e0e0e0;
+}
+
+.dispatch-controls {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 10px;
+  margin: 20px 0;
+  border: 1px solid #e0e0e0;
+}
+
+.bulk-actions {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.filter-info {
+  margin-top: 10px;
+}
+
+.selection-info {
+  background: #007bff;
+  color: white;
+  padding: 5px 10px;
+  border-radius: 15px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.dispatch-workorders {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.dispatch-card {
+  background: white;
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 20px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.dispatch-card:hover {
+  border-color: #007bff;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.dispatch-card.selected {
+  border-color: #007bff;
+  background: #f8f9ff;
+  box-shadow: 0 4px 15px rgba(0,123,255,0.2);
+}
+
+.dispatch-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.selection-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dispatch-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.dispatch-body h4 {
+  margin: 0 0 15px 0;
+  color: #333;
+}
+
+.dispatch-details {
+  margin-bottom: 15px;
+}
+
+.individual-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Clickable Card Styles */
+.clickable-card {
+  cursor: pointer;
+  position: relative;
+}
+
+.clickable-card::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 20px;
+  height: 20px;
+  background: rgba(0, 123, 255, 0.1);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.clickable-card:hover::before {
+  opacity: 1;
+}
+
+.clickable-card:hover {
+  border-color: #007bff;
+}
+
+.clickable-card .actions {
+  position: relative;
+  z-index: 2;
+}
+
+/* Filter and Status Improvements */
+.filter-bar {
+  background: #e8f4f8;
+  padding: 15px 20px;
+  border-radius: 8px;
+  margin: 20px 0;
+  border-left: 4px solid #007bff;
+}
+
+.active-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.filter-label {
+  font-weight: 600;
+  color: #666;
+}
+
+.filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #007bff;
+  color: white;
+  padding: 5px 10px;
+  border-radius: 15px;
+  font-size: 14px;
+}
+
+.filter-remove {
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0;
+  margin-left: 5px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.3s ease;
+}
+
+.filter-remove:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.stat-card.clickable:hover .stat-number {
+  color: #007bff;
+}
+
+.stat-card.clickable:hover .stat-label {
+  color: #333;
+}
+
+@media (max-width: 768px) {
+  .bulk-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .bulk-actions select,
+  .bulk-actions button {
+    width: 100%;
+  }
+  
+  .dispatch-stats {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  
+  .selection-controls {
+    flex-wrap: wrap;
   }
 }
 </style>

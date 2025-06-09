@@ -185,3 +185,33 @@ Hibernate: select af1_0.id,af1_0.approved_at,af1_0.approver_dept,af1_0.approver_
 Hibernate: select u1_0.id,u1_0.created_at,u1_0.department,u1_0.email,u1_0.enabled,u1_0.organization_level,u1_0.password,u1_0.phone,u1_0.real_name,u1_0.role,u1_0.updated_at,u1_0.username from users u1_0
 Hibernate: select wo1_0.id,wo1_0.approved_at,wo1_0.approver_id,wo1_0.approver_name,wo1_0.assigned_at,wo1_0.assignee_id,wo1_0.assignee_name,wo1_0.category,wo1_0.completed_at,wo1_0.created_at,wo1_0.creator_dept,wo1_0.creator_id,wo1_0.creator_level,wo1_0.creator_name,wo1_0.deadline,wo1_0.description,wo1_0.priority,wo1_0.sla_minutes,wo1_0.status,wo1_0.title,wo1_0.updated_at,wo1_0.wo_code from work_order wo1_0
 Hibernate: select wo1_0.id,wo1_0.approved_at,wo1_0.approver_id,wo1_0.approver_name,wo1_0.assigned_at,wo1_0.assignee_id,wo1_0.assignee_name,wo1_0.category,wo1_0.completed_at,wo1_0.created_at,wo1_0.creator_dept,wo1_0.creator_id,wo1_0.creator_level,wo1_0.creator_name,wo1_0.deadline,wo1_0.description,wo1_0.priority,wo1_0.sla_minutes,wo1_0.status,wo1_0.title,wo1_0.updated_at,wo1_0.wo_code from work_order wo1_0
+Hibernate: select u1_0.id,u1_0.created_at,u1_0.department,u1_0.email,u1_0.enabled,u1_0.organization_level,u1_0.password,u1_0.phone,u1_0.real_name,u1_0.role,u1_0.updated_at,u1_0.username from users u1_0 where u1_0.username=?
+Hibernate: select u1_0.id,u1_0.created_at,u1_0.department,u1_0.email,u1_0.enabled,u1_0.organization_level,u1_0.password,u1_0.phone,u1_0.real_name,u1_0.role,u1_0.updated_at,u1_0.username from users u1_0
+Hibernate: select wo1_0.id,wo1_0.approved_at,wo1_0.approver_id,wo1_0.approver_name,wo1_0.assigned_at,wo1_0.assignee_id,wo1_0.assignee_name,wo1_0.category,wo1_0.completed_at,wo1_0.created_at,wo1_0.creator_dept,wo1_0.creator_id,wo1_0.creator_level,wo1_0.creator_name,wo1_0.deadline,wo1_0.description,wo1_0.priority,wo1_0.sla_minutes,wo1_0.status,wo1_0.title,wo1_0.updated_at,wo1_0.wo_code from work_order wo1_0
+Hibernate: select wo1_0.id,wo1_0.approved_at,wo1_0.approver_id,wo1_0.approver_name,wo1_0.assigned_at,wo1_0.assignee_id,wo1_0.assignee_name,wo1_0.category,wo1_0.completed_at,wo1_0.created_at,wo1_0.creator_dept,wo1_0.creator_id,wo1_0.creator_level,wo1_0.creator_name,wo1_0.deadline,wo1_0.description,wo1_0.priority,wo1_0.sla_minutes,wo1_0.status,wo1_0.title,wo1_0.updated_at,wo1_0.wo_code from work_order wo1_0
+Hibernate: select wo1_0.id,wo1_0.approved_at,wo1_0.approver_id,wo1_0.approver_name,wo1_0.assigned_at,wo1_0.assignee_id,wo1_0.assignee_name,wo1_0.category,wo1_0.completed_at,wo1_0.created_at,wo1_0.creator_dept,wo1_0.creator_id,wo1_0.creator_level,wo1_0.creator_name,wo1_0.deadline,wo1_0.description,wo1_0.priority,wo1_0.sla_minutes,wo1_0.status,wo1_0.title,wo1_0.updated_at,wo1_0.wo_code from work_order wo1_0 where wo1_0.id=?
+Hibernate: select u1_0.id,u1_0.created_at,u1_0.department,u1_0.email,u1_0.enabled,u1_0.organization_level,u1_0.password,u1_0.phone,u1_0.real_name,u1_0.role,u1_0.updated_at,u1_0.username from users u1_0 where u1_0.id=?
+Hibernate: select af1_0.id,af1_0.approved_at,af1_0.approver_dept,af1_0.approver_id,af1_0.approver_name,af1_0.approver_role,af1_0.comment,af1_0.created_at,af1_0.status,af1_0.step_order,af1_0.work_order_id from approval_flow af1_0 where af1_0.work_order_id=? and af1_0.status='PENDING' order by af1_0.step_order
+Hibernate: update approval_flow set approved_at=?,approver_dept=?,approver_id=?,approver_name=?,approver_role=?,comment=?,created_at=?,status=?,step_order=?,work_order_id=? where id=?
+Hibernate: select af1_0.id,af1_0.approved_at,af1_0.approver_dept,af1_0.approver_id,af1_0.approver_name,af1_0.approver_role,af1_0.comment,af1_0.created_at,af1_0.status,af1_0.step_order,af1_0.work_order_id from approval_flow af1_0 where af1_0.work_order_id=? and af1_0.status='PENDING' order by af1_0.step_order
+Hibernate: insert into work_order_log (action,comment,created_at,from_status,to_status,user_id,user_name,work_order_id) values (?,?,?,?,?,?,?,?)
+Hibernate: update work_order set approved_at=?,approver_id=?,approver_name=?,assigned_at=?,assignee_id=?,assignee_name=?,category=?,completed_at=?,created_at=?,creator_dept=?,creator_id=?,creator_level=?,creator_name=?,deadline=?,description=?,priority=?,sla_minutes=?,status=?,title=?,updated_at=?,wo_code=? where id=?
+Hibernate: select wo1_0.id,wo1_0.approved_at,wo1_0.approver_id,wo1_0.approver_name,wo1_0.assigned_at,wo1_0.assignee_id,wo1_0.assignee_name,wo1_0.category,wo1_0.completed_at,wo1_0.created_at,wo1_0.creator_dept,wo1_0.creator_id,wo1_0.creator_level,wo1_0.creator_name,wo1_0.deadline,wo1_0.description,wo1_0.priority,wo1_0.sla_minutes,wo1_0.status,wo1_0.title,wo1_0.updated_at,wo1_0.wo_code from work_order wo1_0
+Hibernate: select u1_0.id,u1_0.created_at,u1_0.department,u1_0.email,u1_0.enabled,u1_0.organization_level,u1_0.password,u1_0.phone,u1_0.real_name,u1_0.role,u1_0.updated_at,u1_0.username from users u1_0
+Hibernate: select wo1_0.id,wo1_0.approved_at,wo1_0.approver_id,wo1_0.approver_name,wo1_0.assigned_at,wo1_0.assignee_id,wo1_0.assignee_name,wo1_0.category,wo1_0.completed_at,wo1_0.created_at,wo1_0.creator_dept,wo1_0.creator_id,wo1_0.creator_level,wo1_0.creator_name,wo1_0.deadline,wo1_0.description,wo1_0.priority,wo1_0.sla_minutes,wo1_0.status,wo1_0.title,wo1_0.updated_at,wo1_0.wo_code from work_order wo1_0
+2025-06-09T18:04:02.016+08:00  INFO 75618 --- [ionShutdownHook] j.LocalContainerEntityManagerFactoryBean : Closing JPA EntityManagerFactory for persistence unit 'default'
+2025-06-09T18:04:02.020+08:00  INFO 75618 --- [ionShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
+2025-06-09T18:04:02.022+08:00  INFO 75618 --- [ionShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  37:10 min
+[INFO] Finished at: 2025-06-09T18:04:02+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.springframework.boot:spring-boot-maven-plugin:3.3.0:run (default-cli) on project ops-workorder: Process terminated with exit code: 143 -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException

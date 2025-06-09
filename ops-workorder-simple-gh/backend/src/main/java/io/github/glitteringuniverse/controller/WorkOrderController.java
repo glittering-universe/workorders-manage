@@ -12,7 +12,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/orders")
 @RequiredArgsConstructor
-@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174", "http://localhost:5175"}, allowCredentials = "true")
+@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:5176"}, allowCredentials = "true")
 public class WorkOrderController {
 
     private final WorkOrderService workOrderService;
@@ -20,6 +20,11 @@ public class WorkOrderController {
     @GetMapping
     public List<WorkOrder> getAll() {
         return workOrderService.getAll();
+    }
+    
+    @GetMapping("/{id}")
+    public WorkOrder getById(@PathVariable Long id) {
+        return workOrderService.getById(id);
     }
     
     @GetMapping("/my")
@@ -40,6 +45,11 @@ public class WorkOrderController {
     @PostMapping
     public WorkOrder create(@RequestBody WorkOrder dto, @RequestParam Long creatorId) {
         return workOrderService.create(dto, creatorId);
+    }
+    
+    @PutMapping("/{id}")
+    public WorkOrder update(@PathVariable Long id, @RequestBody WorkOrder dto) {
+        return workOrderService.update(id, dto);
     }
 
     @PostMapping("/{id}/submit")

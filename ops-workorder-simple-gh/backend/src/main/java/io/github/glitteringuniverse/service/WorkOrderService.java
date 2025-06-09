@@ -30,6 +30,13 @@ public class WorkOrderService {
     }
     
     /**
+     * 根据ID获取工单
+     */
+    public WorkOrder getById(Long id) {
+        return workOrderRepository.findById(id).orElse(null);
+    }
+    
+    /**
      * 获取用户的待办工单
      */
     public List<WorkOrder> getPendingTasks(Long userId) {
@@ -80,6 +87,31 @@ public class WorkOrderService {
                 WorkOrderLog.Action.CREATE, null, saved.getStatus().name(), "创建工单");
         
         return saved;
+    }
+
+    @Transactional
+    public WorkOrder update(Long id, WorkOrder dto) {
+        WorkOrder existingWorkOrder = workOrderRepository.findById(id).orElseThrow();
+        
+        // 只有草稿状态的工单才能编辑
+        if (existingWorkOrder.getStatus() != WorkOrder.Status.DRAFT) {
+            throw new IllegalStateException("只有草稿状态的工单才能编辑");
+        }
+        
+        // 更新基本信息
+        existingWorkOrder.setTitle(dto.getTitle());
+        existingWorkOrder.setDescription(dto.getDescription());
+        existingWorkOrder.setCategory(dto.getCategory());
+        existingWorkOrder.setPriority(dto.getPriority());
+        existingWorkOrder.setSlaMinutes(dto.getSlaMinutes());
+        existingWorkOrder.setUpdatedAt(LocalDateTime.now());
+        
+        // 重新计算截止时间
+        if (dto.getSlaMinutes() != null) {
+            existingWorkOrder.setDeadline(existingWorkOrder.getCreatedAt().plusMinutes(dto.getSlaMinutes()));
+        }
+        
+        return workOrderRepository.save(existingWorkOrder);
     }
 
     @Transactional
@@ -249,16 +281,28 @@ public class WorkOrderService {
     }
     
     private List<User> getApproversForWorkOrder(WorkOrder workOrder) {
-        // 简化逻辑：高优先级需要部门经理审批，其他优先级也可以由部门经理审批
+        // 优先级审批逻辑：高优先级需要部门经理或管理员审批
         if (workOrder.getPriority() == WorkOrder.Priority.HIGH) {
-            return userRepository.findByRole(User.Role.DEPT_MANAGER);
-        } else {
-            // 先尝试找专门的审批员，如果没有就使用部门经理
-            List<User> approvers = userRepository.findByRole(User.Role.APPROVER);
-            if (approvers.isEmpty()) {
-                return userRepository.findByRole(User.Role.DEPT_MANAGER);
+            // 高优先级：优先部门经理，如无则使用管理员
+            List<User> deptManagers = userRepository.findByRole(User.Role.DEPT_MANAGER);
+            if (!deptManagers.isEmpty()) {
+                return deptManagers;
             }
-            return approvers;
+            return userRepository.findByRole(User.Role.ADMIN);
+        } else {
+            // 普通优先级：审批员 -> 部门经理 -> 管理员
+            List<User> approvers = userRepository.findByRole(User.Role.APPROVER);
+            if (!approvers.isEmpty()) {
+                return approvers;
+            }
+            
+            List<User> deptManagers = userRepository.findByRole(User.Role.DEPT_MANAGER);
+            if (!deptManagers.isEmpty()) {
+                return deptManagers;
+            }
+            
+            // 最后使用管理员作为兜底
+            return userRepository.findByRole(User.Role.ADMIN);
         }
     }
     
