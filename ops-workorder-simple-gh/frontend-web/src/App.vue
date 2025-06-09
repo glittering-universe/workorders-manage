@@ -105,6 +105,54 @@ const closeWorkOrderDetail = () => {
   showWorkOrderDetail.value = false
 }
 
+// 用户详情
+const selectedUser = ref<User | null>(null)
+const showUserDetail = ref(false)
+
+const showUserDetailModal = (user: User) => {
+  selectedUser.value = user
+  showUserDetail.value = true
+}
+
+const closeUserDetail = () => {
+  selectedUser.value = null
+  showUserDetail.value = false
+}
+
+// 详细统计视图
+const showDetailedStats = ref(false)
+const selectedStatType = ref('')
+
+const openDetailedStats = (statType: string) => {
+  selectedStatType.value = statType
+  showDetailedStats.value = true
+}
+
+const closeDetailedStats = () => {
+  showDetailedStats.value = false
+  selectedStatType.value = ''
+}
+
+// 效率等级评定辅助函数
+const getEfficiencyGrade = (avgProcessingTime: number): string => {
+  if (avgProcessingTime <= 2) return 'A+'
+  if (avgProcessingTime <= 4) return 'A'
+  if (avgProcessingTime <= 8) return 'B'
+  if (avgProcessingTime <= 16) return 'C'
+  return 'D'
+}
+
+const getEfficiencyGradeText = (grade: string): string => {
+  const gradeTexts = {
+    'A+': '优秀',
+    'A': '良好',
+    'B': '一般',
+    'C': '待改进',
+    'D': '需优化'
+  }
+  return gradeTexts[grade] || '未知'
+}
+
 // 分派中心功能
 const openDispatchCenter = () => {
   showDispatchCenter.value = true
@@ -201,7 +249,7 @@ const clearFilters = () => {
   isOverdueFilter.value = false
 }
 
-const apiBase = 'http://localhost:8080/api'
+const apiBase = 'http://localhost:8081/api'
 
 // API 函数
 const login = async () => {
@@ -281,16 +329,59 @@ const loadUsers = async () => {
 }
 
 const loadStatistics = async () => {
+  if (!currentUser.value) return
+  
   try {
-    // 使用总体统计数据获取更准确的信息
-    const response = await axios.get(`${apiBase}/statistics/overall`)
+    // 构建基于角色的统计查询参数
+    let statisticsUrl = `${apiBase}/statistics/overall`
+    const params = new URLSearchParams()
+    
+    // 根据用户角色和权限进行数据过滤
+    const userRole = currentUser.value.role
+    const userDept = currentUser.value.department
+    const userLevel = currentUser.value.organizationLevel
+    
+    // 不是管理员的用户只能看到自己部门或级别的数据
+    if (userRole !== 'ADMIN') {
+      // 部门经理可以看到自己部门的数据
+      if (userRole === 'DEPT_MANAGER') {
+        params.append('department', userDept)
+      }
+      // 其他角色只能看到自己组织级别的数据
+      else if (userRole === 'APPROVER' || userRole === 'OPERATOR' || userRole === 'USER') {
+        params.append('organizationLevel', userLevel)
+      }
+    }
+    
+    if (params.toString()) {
+      statisticsUrl += '?' + params.toString()
+    }
+    
+    const response = await axios.get(statisticsUrl)
     statistics.value = response.data
   } catch (error) {
     console.error('加载统计数据失败:', error)
     // 如果总体统计失败，回退到今日统计
     try {
       const today = new Date().toISOString().split('T')[0]
-      const fallbackResponse = await axios.get(`${apiBase}/statistics/daily?date=${today}`)
+      let fallbackUrl = `${apiBase}/statistics/daily?date=${today}`
+      
+      // 应用相同的角色过滤逻辑
+      const params = new URLSearchParams([['date', today]])
+      const userRole = currentUser.value?.role
+      const userDept = currentUser.value?.department
+      const userLevel = currentUser.value?.organizationLevel
+      
+      if (userRole !== 'ADMIN') {
+        if (userRole === 'DEPT_MANAGER') {
+          params.append('department', userDept)
+        } else if (userRole === 'APPROVER' || userRole === 'OPERATOR' || userRole === 'USER') {
+          params.append('organizationLevel', userLevel)
+        }
+      }
+      
+      fallbackUrl = `${apiBase}/statistics/daily?${params.toString()}`
+      const fallbackResponse = await axios.get(fallbackUrl)
       statistics.value = fallbackResponse.data
     } catch (fallbackError) {
       console.error('加载今日统计数据也失败:', fallbackError)
@@ -725,29 +816,47 @@ onMounted(() => {
           <h2>系统概览</h2>
           <div class="stats-grid" v-if="statistics">
             <div class="stat-card clickable" @click="activeTab = 'workorders'">
+              <div class="stat-icon">📊</div>
               <div class="stat-number">{{ statistics.totalOrders }}</div>
               <div class="stat-label">总工单数</div>
             </div>
             <div class="stat-card clickable" @click="filterByStatus('COMPLETED')">
+              <div class="stat-icon">✅</div>
               <div class="stat-number">{{ statistics.completedOrders }}</div>
               <div class="stat-label">已完成工单</div>
             </div>
             <div class="stat-card clickable" @click="filterByStatus('PROCESSING')">
+              <div class="stat-icon">⏳</div>
               <div class="stat-number">{{ (statistics.submittedOrders || 0) + (statistics.approvedOrders || 0) + (statistics.rejectedOrders || 0) }}</div>
               <div class="stat-label">处理中工单</div>
             </div>
             <div class="stat-card clickable warning" @click="filterOverdue()">
+              <div class="stat-icon">⚠️</div>
               <div class="stat-number">{{ statistics.overdueOrders }}</div>
               <div class="stat-label">逾期工单</div>
             </div>
-            <div class="stat-card success">
+            <div class="stat-card success clickable" @click="openDetailedStats('completion')">
+              <div class="stat-icon">📈</div>
               <div class="stat-number">{{ statistics.onTimeCompletionRate.toFixed(1) }}%</div>
               <div class="stat-label">按时完成率</div>
+              <div class="stat-detail">点击查看详情</div>
             </div>
-            <div class="stat-card info">
+            <div class="stat-card info clickable" @click="openDetailedStats('processing')">
+              <div class="stat-icon">⏱️</div>
               <div class="stat-number">{{ statistics.averageProcessingTime.toFixed(1) }}h</div>
               <div class="stat-label">平均处理时间</div>
+              <div class="stat-detail">点击查看详情</div>
             </div>
+          </div>
+          
+          <!-- 权限说明 -->
+          <div v-if="currentUser" class="permission-info">
+            <small>
+              📋 当前显示: 
+              <span v-if="currentUser.role === 'ADMIN'">全系统数据</span>
+              <span v-else-if="currentUser.role === 'DEPT_MANAGER'">{{ getDepartmentText(currentUser.department) }}数据</span>
+              <span v-else>{{ currentUser.organizationLevel }}数据</span>
+            </small>
           </div>
           
           <div class="recent-orders">
@@ -756,7 +865,8 @@ onMounted(() => {
               <div 
                 v-for="order in filteredWorkOrders.slice(0, 5)" 
                 :key="order.id" 
-                class="order-item"
+                class="order-item clickable"
+                @click="viewWorkOrderDetail(order)"
               >
                 <span class="order-code">{{ order.woCode }}</span>
                 <span class="order-title">{{ order.title }}</span>
@@ -1089,7 +1199,12 @@ onMounted(() => {
           </div>
           
           <div v-else class="user-list">
-            <div v-for="user in users" :key="user.id" class="user-card">
+            <div 
+              v-for="user in users" 
+              :key="user.id" 
+              class="user-card clickable"
+              @click="showUserDetailModal(user)"
+            >
               <div class="user-info">
                 <h4>{{ user.realName }}</h4>
                 <p><strong>用户名:</strong> {{ user.username }}</p>
@@ -1468,6 +1583,823 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- 用户详情模态框 -->
+    <div v-if="showUserDetail && selectedUser" class="modal-overlay" @click="closeUserDetail">
+      <div class="modal detail-modal" @click.stop>
+        <div class="modal-header">
+          <h2>👤 用户详情</h2>
+          <button @click="closeUserDetail" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="detail-section">
+            <h3>基本信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>真实姓名:</label>
+                <span>{{ selectedUser.realName }}</span>
+              </div>
+              <div class="detail-item">
+                <label>用户名:</label>
+                <span>{{ selectedUser.username }}</span>
+              </div>
+              <div class="detail-item">
+                <label>邮箱:</label>
+                <span>{{ selectedUser.email }}</span>
+              </div>
+              <div class="detail-item">
+                <label>角色:</label>
+                <span class="role-badge">{{ getRoleText(selectedUser.role) }}</span>
+              </div>
+              <div class="detail-item">
+                <label>部门:</label>
+                <span>{{ getDepartmentText(selectedUser.department) }}</span>
+              </div>
+              <div class="detail-item">
+                <label>组织级别:</label>
+                <span>{{ selectedUser.organizationLevel }}</span>
+              </div>
+              <div class="detail-item">
+                <label>账户状态:</label>
+                <span :class="['status-badge', selectedUser.enabled ? 'enabled' : 'disabled']">
+                  {{ selectedUser.enabled ? '启用' : '禁用' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 详细统计模态框 -->
+    <div v-if="showDetailedStats" class="modal-overlay" @click="closeDetailedStats">
+      <div class="modal detail-modal stats-modal" @click.stop>
+        <div class="modal-header">
+          <h2>
+            <span v-if="selectedStatType === 'completion'">📈 按时完成率详细分析</span>
+            <span v-else-if="selectedStatType === 'processing'">⏱️ 处理时间详细分析</span>
+            <span v-else>📊 统计分析</span>
+          </h2>
+          <button @click="closeDetailedStats" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          
+          <!-- 按时完成率详细分析 -->
+          <div v-if="selectedStatType === 'completion' && statistics" class="stats-detail-content">
+            <!-- 关键指标概览 -->
+            <div class="stats-overview">
+              <div class="overview-card success">
+                <div class="overview-icon">✅</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ statistics.onTimeCompletionRate.toFixed(1) }}%</div>
+                  <div class="overview-label">当前按时完成率</div>
+                </div>
+              </div>
+              <div class="overview-card info">
+                <div class="overview-icon">📊</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ statistics.completedOrders || 0 }}</div>
+                  <div class="overview-label">已完成工单总数</div>
+                </div>
+              </div>
+              <div class="overview-card warning">
+                <div class="overview-icon">⚠️</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ Math.round((statistics.completedOrders || 0) * (100 - statistics.onTimeCompletionRate) / 100) }}</div>
+                  <div class="overview-label">逾期完成工单</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 完成率详细分析 -->
+            <div class="detail-section">
+              <h3>📈 完成率分析</h3>
+              <div class="completion-analysis">
+                <div class="progress-chart">
+                  <div class="chart-title">按时完成率可视化</div>
+                  <div class="progress-ring">
+                    <svg viewBox="0 0 120 120" class="progress-svg">
+                      <circle cx="60" cy="60" r="54" stroke="#e0e0e0" stroke-width="12" fill="none"/>
+                      <circle 
+                        cx="60" 
+                        cy="60" 
+                        r="54" 
+                        stroke="#28a745" 
+                        stroke-width="12" 
+                        fill="none"
+                        :stroke-dasharray="`${statistics.onTimeCompletionRate * 3.39} 339`"
+                        stroke-linecap="round"
+                        transform="rotate(-90 60 60)"
+                      />
+                    </svg>
+                    <div class="progress-text">
+                      <div class="progress-percent">{{ statistics.onTimeCompletionRate.toFixed(1) }}%</div>
+                      <div class="progress-label">按时完成</div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="completion-metrics">
+                  <div class="metric-item">
+                    <div class="metric-icon">🎯</div>
+                    <div class="metric-content">
+                      <div class="metric-title">目标完成率</div>
+                      <div class="metric-value">≥ 90%</div>
+                      <div class="metric-status" :class="statistics.onTimeCompletionRate >= 90 ? 'good' : 'needs-improvement'">
+                        {{ statistics.onTimeCompletionRate >= 90 ? '达标' : '需改进' }}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="metric-item">
+                    <div class="metric-icon">📅</div>
+                    <div class="metric-content">
+                      <div class="metric-title">按时完成工单</div>
+                      <div class="metric-value">{{ Math.round((statistics.completedOrders || 0) * statistics.onTimeCompletionRate / 100) }}</div>
+                      <div class="metric-desc">/ {{ statistics.completedOrders || 0 }} 已完成</div>
+                    </div>
+                  </div>
+                  
+                  <div class="metric-item">
+                    <div class="metric-icon">⏰</div>
+                    <div class="metric-content">
+                      <div class="metric-title">逾期工单</div>
+                      <div class="metric-value">{{ Math.round((statistics.completedOrders || 0) * (100 - statistics.onTimeCompletionRate) / 100) }}</div>
+                      <div class="metric-desc">需关注改进</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 改进建议 -->
+            <div class="detail-section">
+              <h3>💡 改进建议</h3>
+              <div class="improvement-suggestions">
+                <div v-if="statistics.onTimeCompletionRate < 90" class="suggestion-card priority">
+                  <div class="suggestion-icon">🚨</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">紧急改进项</div>
+                    <div class="suggestion-text">按时完成率低于90%，建议优化SLA时间设置或加强工单跟踪</div>
+                  </div>
+                </div>
+                
+                <div v-if="statistics.overdueOrders > 0" class="suggestion-card warning">
+                  <div class="suggestion-icon">⚠️</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">逾期工单处理</div>
+                    <div class="suggestion-text">当前有 {{ statistics.overdueOrders }} 个逾期工单，建议优先处理</div>
+                  </div>
+                </div>
+                
+                <div class="suggestion-card info">
+                  <div class="suggestion-icon">📊</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">数据监控</div>
+                    <div class="suggestion-text">建议定期监控完成率趋势，设置自动提醒机制</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 处理时间详细分析 -->
+          <div v-if="selectedStatType === 'processing' && statistics" class="stats-detail-content">
+            <!-- 处理时间概览 -->
+            <div class="stats-overview">
+              <div class="overview-card info">
+                <div class="overview-icon">⏱️</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ statistics.averageProcessingTime.toFixed(1) }}h</div>
+                  <div class="overview-label">平均处理时间</div>
+                </div>
+              </div>
+              <div class="overview-card success">
+                <div class="overview-icon">🚀</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ Math.max(0, 24 - statistics.averageProcessingTime).toFixed(1) }}h</div>
+                  <div class="overview-label">比24h标准快</div>
+                </div>
+              </div>
+              <div class="overview-card warning">
+                <div class="overview-icon">📈</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ statistics.completedOrders || 0 }}</div>
+                  <div class="overview-label">样本工单数</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 处理时间分析 -->
+            <div class="detail-section">
+              <h3>⏱️ 处理时间分析</h3>
+              <div class="processing-analysis">
+                <div class="time-chart">
+                  <div class="chart-title">处理效率指标</div>
+                  <div class="time-bars">
+                    <div class="time-bar">
+                      <div class="bar-label">当前平均时间</div>
+                      <div class="bar-container">
+                        <div 
+                          class="bar-fill current" 
+                          :style="{ width: Math.min(100, (statistics.averageProcessingTime / 48) * 100) + '%' }"
+                        ></div>
+                      </div>
+                      <div class="bar-value">{{ statistics.averageProcessingTime.toFixed(1) }}h</div>
+                    </div>
+                    
+                    <div class="time-bar">
+                      <div class="bar-label">目标处理时间</div>
+                      <div class="bar-container">
+                        <div class="bar-fill target" style="width: 50%"></div>
+                      </div>
+                      <div class="bar-value">24.0h</div>
+                    </div>
+                    
+                    <div class="time-bar">
+                      <div class="bar-label">最佳实践时间</div>
+                      <div class="bar-container">
+                        <div class="bar-fill best" style="width: 25%"></div>
+                      </div>
+                      <div class="bar-value">12.0h</div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="time-metrics">
+                  <div class="metric-item">
+                    <div class="metric-icon">🎯</div>
+                    <div class="metric-content">
+                      <div class="metric-title">效率评级</div>
+                      <div class="metric-value" :class="getEfficiencyGrade(statistics.averageProcessingTime)">
+                        {{ getEfficiencyGradeText(getEfficiencyGrade(statistics.averageProcessingTime)) }}
+                      </div>
+                      <div class="metric-desc">基于行业标准</div>
+                    </div>
+                  </div>
+                  
+                  <div class="metric-item">
+                    <div class="metric-icon">📊</div>
+                    <div class="metric-content">
+                      <div class="metric-title">相对表现</div>
+                      <div class="metric-value">{{ statistics.averageProcessingTime <= 24 ? '良好' : '需改进' }}</div>
+                      <div class="metric-desc">与24h标准对比</div>
+                    </div>
+                  </div>
+                  
+                  <div class="metric-item">
+                    <div class="metric-icon">⚡</div>
+                    <div class="metric-content">
+                      <div class="metric-title">改进空间</div>
+                      <div class="metric-value">{{ Math.max(0, statistics.averageProcessingTime - 12).toFixed(1) }}h</div>
+                      <div class="metric-desc">距离最佳实践</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 优化建议 -->
+            <div class="detail-section">
+              <h3>🔧 优化建议</h3>
+              <div class="optimization-suggestions">
+                <div v-if="statistics.averageProcessingTime > 36" class="suggestion-card priority">
+                  <div class="suggestion-icon">🚨</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">处理时间过长</div>
+                    <div class="suggestion-text">平均处理时间超过36小时，建议检查流程瓶颈并优化资源配置</div>
+                  </div>
+                </div>
+                
+                <div v-else-if="statistics.averageProcessingTime > 24" class="suggestion-card warning">
+                  <div class="suggestion-icon">⚠️</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">处理时间偏长</div>
+                    <div class="suggestion-text">处理时间超过24小时标准，建议优化工作流程或增加人员配置</div>
+                  </div>
+                </div>
+                
+                <div v-else class="suggestion-card success">
+                  <div class="suggestion-icon">✅</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">处理效率良好</div>
+                    <div class="suggestion-text">处理时间在合理范围内，继续保持当前流程</div>
+                  </div>
+                </div>
+                
+                <div class="suggestion-card info">
+                  <div class="suggestion-icon">📈</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">持续改进</div>
+                    <div class="suggestion-text">建议定期分析处理时间趋势，识别季节性变化和流程优化机会</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 权限信息说明 -->
+          <div v-if="currentUser" class="stats-permission-info">
+            <small>
+              📋 数据范围: 
+              <span v-if="currentUser.role === 'ADMIN'">全系统统计数据</span>
+              <span v-else-if="currentUser.role === 'DEPT_MANAGER'">{{ getDepartmentText(currentUser.department) }}统计数据</span>
+              <span v-else>{{ currentUser.organizationLevel }}统计数据</span>
+            </small>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 工单详情模态框 -->
+    <div v-if="showWorkOrderDetail && selectedWorkOrder" class="modal-overlay" @click="closeWorkOrderDetail">
+      <div class="modal detail-modal" @click.stop>
+        <div class="modal-header">
+          <h2>📋 工单详情</h2>
+          <button @click="closeWorkOrderDetail" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="detail-section">
+            <h3>基本信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>工单编号:</label>
+                <span>{{ selectedWorkOrder.woCode }}</span>
+              </div>
+              <div class="detail-item">
+                <label>标题:</label>
+                <span>{{ selectedWorkOrder.title }}</span>
+              </div>
+              <div class="detail-item">
+                <label>状态:</label>
+                <span class="status-badge" :style="{ backgroundColor: getStatusColor(selectedWorkOrder.status || '') }">
+                  {{ getStatusText(selectedWorkOrder.status || '') }}
+                </span>
+              </div>
+              <div class="detail-item">
+                <label>分类:</label>
+                <span>{{ getCategoryText(selectedWorkOrder.category) }}</span>
+              </div>
+              <div class="detail-item">
+                <label>优先级:</label>
+                <span>{{ getPriorityText(selectedWorkOrder.priority) }}</span>
+              </div>
+              <div class="detail-item">
+                <label>SLA时间:</label>
+                <span>{{ selectedWorkOrder.slaMinutes }}分钟</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h3>人员信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>创建人:</label>
+                <span>{{ selectedWorkOrder.creatorName || '未知' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>审批人:</label>
+                <span>{{ selectedWorkOrder.approverName || '待审批' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>处理人:</label>
+                <span>{{ selectedWorkOrder.assigneeName || '未分派' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h3>时间信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>创建时间:</label>
+                <span>{{ selectedWorkOrder.createdAt ? new Date(selectedWorkOrder.createdAt).toLocaleString() : '未知' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>更新时间:</label>
+                <span>{{ selectedWorkOrder.updatedAt ? new Date(selectedWorkOrder.updatedAt).toLocaleString() : '未知' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>截止时间:</label>
+                <span>{{ selectedWorkOrder.deadline ? new Date(selectedWorkOrder.deadline).toLocaleString() : '未设置' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>完成时间:</label>
+                <span>{{ selectedWorkOrder.completedAt ? new Date(selectedWorkOrder.completedAt).toLocaleString() : '未完成' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="selectedWorkOrder.description" class="detail-section">
+            <h3>详细描述</h3>
+            <div class="description-content">
+              {{ selectedWorkOrder.description }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 编辑工单模态框 -->
+    <div v-if="showEditForm && editingWorkOrder" class="modal-overlay" @click="cancelEdit">
+      <div class="modal edit-modal" @click.stop>
+        <div class="modal-header">
+          <h2>✏️ 编辑工单</h2>
+          <button @click="cancelEdit" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form @submit.prevent="updateWorkOrder">
+            <div class="form-group">
+              <label>工单标题:</label>
+              <input 
+                v-model="editingWorkOrder.title" 
+                type="text" 
+                required 
+                class="form-control"
+              />
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label>分类:</label>
+                <select v-model="editingWorkOrder.category" class="form-control">
+                  <option value="MAINTENANCE">维护</option>
+                  <option value="INCIDENT">故障</option>
+                  <option value="REQUEST">请求</option>
+                  <option value="CHANGE">变更</option>
+                  <option value="EMERGENCY">紧急</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>优先级:</label>
+                <select v-model="editingWorkOrder.priority" class="form-control">
+                  <option value="HIGH">高</option>
+                  <option value="MEDIUM">中</option>
+                  <option value="LOW">低</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label>SLA时间 (分钟):</label>
+              <input 
+                v-model.number="editingWorkOrder.slaMinutes" 
+                type="number" 
+                min="1" 
+                required 
+                class="form-control"
+              />
+            </div>
+            
+            <div class="form-group">
+              <label>详细描述:</label>
+              <textarea 
+                v-model="editingWorkOrder.description" 
+                rows="4" 
+                class="form-control"
+              ></textarea>
+            </div>
+            
+            <div class="form-actions">
+              <button type="submit" :disabled="loading" class="btn btn-success">
+                {{ loading ? '更新中...' : '保存更改' }}
+              </button>
+              <button type="button" @click="cancelEdit" class="btn btn-secondary">
+                取消
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- 用户详情模态框 -->
+    <div v-if="showUserDetail && selectedUser" class="modal-overlay" @click="closeUserDetail">
+      <div class="modal detail-modal" @click.stop>
+        <div class="modal-header">
+          <h2>👤 用户详情</h2>
+          <button @click="closeUserDetail" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="detail-section">
+            <h3>基本信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>真实姓名:</label>
+                <span>{{ selectedUser.realName }}</span>
+              </div>
+              <div class="detail-item">
+                <label>用户名:</label>
+                <span>{{ selectedUser.username }}</span>
+              </div>
+              <div class="detail-item">
+                <label>邮箱:</label>
+                <span>{{ selectedUser.email }}</span>
+              </div>
+              <div class="detail-item">
+                <label>角色:</label>
+                <span class="role-badge">{{ getRoleText(selectedUser.role) }}</span>
+              </div>
+              <div class="detail-item">
+                <label>部门:</label>
+                <span>{{ getDepartmentText(selectedUser.department) }}</span>
+              </div>
+              <div class="detail-item">
+                <label>组织级别:</label>
+                <span>{{ selectedUser.organizationLevel }}</span>
+              </div>
+              <div class="detail-item">
+                <label>账户状态:</label>
+                <span :class="['status-badge', selectedUser.enabled ? 'enabled' : 'disabled']">
+                  {{ selectedUser.enabled ? '启用' : '禁用' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 详细统计模态框 -->
+    <div v-if="showDetailedStats" class="modal-overlay" @click="closeDetailedStats">
+      <div class="modal detail-modal stats-modal" @click.stop>
+        <div class="modal-header">
+          <h2>
+            <span v-if="selectedStatType === 'completion'">📈 按时完成率详细分析</span>
+            <span v-else-if="selectedStatType === 'processing'">⏱️ 处理时间详细分析</span>
+            <span v-else>📊 统计分析</span>
+          </h2>
+          <button @click="closeDetailedStats" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          
+          <!-- 按时完成率详细分析 -->
+          <div v-if="selectedStatType === 'completion' && statistics" class="stats-detail-content">
+            <!-- 关键指标概览 -->
+            <div class="stats-overview">
+              <div class="overview-card success">
+                <div class="overview-icon">✅</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ statistics.onTimeCompletionRate.toFixed(1) }}%</div>
+                  <div class="overview-label">当前按时完成率</div>
+                </div>
+              </div>
+              <div class="overview-card info">
+                <div class="overview-icon">📊</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ statistics.completedOrders || 0 }}</div>
+                  <div class="overview-label">已完成工单总数</div>
+                </div>
+              </div>
+              <div class="overview-card warning">
+                <div class="overview-icon">⚠️</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ Math.round((statistics.completedOrders || 0) * (100 - statistics.onTimeCompletionRate) / 100) }}</div>
+                  <div class="overview-label">逾期完成工单</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 完成率详细分析 -->
+            <div class="detail-section">
+              <h3>📈 完成率分析</h3>
+              <div class="completion-analysis">
+                <div class="progress-chart">
+                  <div class="chart-title">按时完成率可视化</div>
+                  <div class="progress-ring">
+                    <svg viewBox="0 0 120 120" class="progress-svg">
+                      <circle cx="60" cy="60" r="54" stroke="#e0e0e0" stroke-width="12" fill="none"/>
+                      <circle 
+                        cx="60" 
+                        cy="60" 
+                        r="54" 
+                        stroke="#28a745" 
+                        stroke-width="12" 
+                        fill="none"
+                        :stroke-dasharray="`${statistics.onTimeCompletionRate * 3.39} 339`"
+                        stroke-linecap="round"
+                        transform="rotate(-90 60 60)"
+                      />
+                    </svg>
+                    <div class="progress-text">
+                      <div class="progress-percent">{{ statistics.onTimeCompletionRate.toFixed(1) }}%</div>
+                      <div class="progress-label">按时完成</div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="completion-metrics">
+                  <div class="metric-item">
+                    <div class="metric-icon">🎯</div>
+                    <div class="metric-content">
+                      <div class="metric-title">目标完成率</div>
+                      <div class="metric-value">≥ 90%</div>
+                      <div class="metric-status" :class="statistics.onTimeCompletionRate >= 90 ? 'good' : 'needs-improvement'">
+                        {{ statistics.onTimeCompletionRate >= 90 ? '达标' : '需改进' }}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="metric-item">
+                    <div class="metric-icon">📅</div>
+                    <div class="metric-content">
+                      <div class="metric-title">按时完成工单</div>
+                      <div class="metric-value">{{ Math.round((statistics.completedOrders || 0) * statistics.onTimeCompletionRate / 100) }}</div>
+                      <div class="metric-desc">/ {{ statistics.completedOrders || 0 }} 已完成</div>
+                    </div>
+                  </div>
+                  
+                  <div class="metric-item">
+                    <div class="metric-icon">⏰</div>
+                    <div class="metric-content">
+                      <div class="metric-title">逾期工单</div>
+                      <div class="metric-value">{{ Math.round((statistics.completedOrders || 0) * (100 - statistics.onTimeCompletionRate) / 100) }}</div>
+                      <div class="metric-desc">需关注改进</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 改进建议 -->
+            <div class="detail-section">
+              <h3>💡 改进建议</h3>
+              <div class="improvement-suggestions">
+                <div v-if="statistics.onTimeCompletionRate < 90" class="suggestion-card priority">
+                  <div class="suggestion-icon">🚨</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">紧急改进项</div>
+                    <div class="suggestion-text">按时完成率低于90%，建议优化SLA时间设置或加强工单跟踪</div>
+                  </div>
+                </div>
+                
+                <div v-if="statistics.overdueOrders > 0" class="suggestion-card warning">
+                  <div class="suggestion-icon">⚠️</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">逾期工单处理</div>
+                    <div class="suggestion-text">当前有 {{ statistics.overdueOrders }} 个逾期工单，建议优先处理</div>
+                  </div>
+                </div>
+                
+                <div class="suggestion-card info">
+                  <div class="suggestion-icon">📊</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">数据监控</div>
+                    <div class="suggestion-text">建议定期监控完成率趋势，设置自动提醒机制</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 处理时间详细分析 -->
+          <div v-if="selectedStatType === 'processing' && statistics" class="stats-detail-content">
+            <!-- 处理时间概览 -->
+            <div class="stats-overview">
+              <div class="overview-card info">
+                <div class="overview-icon">⏱️</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ statistics.averageProcessingTime.toFixed(1) }}h</div>
+                  <div class="overview-label">平均处理时间</div>
+                </div>
+              </div>
+              <div class="overview-card success">
+                <div class="overview-icon">🚀</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ Math.max(0, 24 - statistics.averageProcessingTime).toFixed(1) }}h</div>
+                  <div class="overview-label">比24h标准快</div>
+                </div>
+              </div>
+              <div class="overview-card warning">
+                <div class="overview-icon">📈</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ statistics.completedOrders || 0 }}</div>
+                  <div class="overview-label">样本工单数</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 处理时间分析 -->
+            <div class="detail-section">
+              <h3>⏱️ 处理时间分析</h3>
+              <div class="processing-analysis">
+                <div class="time-chart">
+                  <div class="chart-title">处理效率指标</div>
+                  <div class="time-bars">
+                    <div class="time-bar">
+                      <div class="bar-label">当前平均时间</div>
+                      <div class="bar-container">
+                        <div 
+                          class="bar-fill current" 
+                          :style="{ width: Math.min(100, (statistics.averageProcessingTime / 48) * 100) + '%' }"
+                        ></div>
+                      </div>
+                      <div class="bar-value">{{ statistics.averageProcessingTime.toFixed(1) }}h</div>
+                    </div>
+                    
+                    <div class="time-bar">
+                      <div class="bar-label">目标处理时间</div>
+                      <div class="bar-container">
+                        <div class="bar-fill target" style="width: 50%"></div>
+                      </div>
+                      <div class="bar-value">24.0h</div>
+                    </div>
+                    
+                    <div class="time-bar">
+                      <div class="bar-label">最佳实践时间</div>
+                      <div class="bar-container">
+                        <div class="bar-fill best" style="width: 25%"></div>
+                      </div>
+                      <div class="bar-value">12.0h</div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="time-metrics">
+                  <div class="metric-item">
+                    <div class="metric-icon">🎯</div>
+                    <div class="metric-content">
+                      <div class="metric-title">效率评级</div>
+                      <div class="metric-value" :class="getEfficiencyGrade(statistics.averageProcessingTime)">
+                        {{ getEfficiencyGradeText(getEfficiencyGrade(statistics.averageProcessingTime)) }}
+                      </div>
+                      <div class="metric-desc">基于行业标准</div>
+                    </div>
+                  </div>
+                  
+                  <div class="metric-item">
+                    <div class="metric-icon">📊</div>
+                    <div class="metric-content">
+                      <div class="metric-title">相对表现</div>
+                      <div class="metric-value">{{ statistics.averageProcessingTime <= 24 ? '良好' : '需改进' }}</div>
+                      <div class="metric-desc">与24h标准对比</div>
+                    </div>
+                  </div>
+                  
+                  <div class="metric-item">
+                    <div class="metric-icon">⚡</div>
+                    <div class="metric-content">
+                      <div class="metric-title">改进空间</div>
+                      <div class="metric-value">{{ Math.max(0, statistics.averageProcessingTime - 12).toFixed(1) }}h</div>
+                      <div class="metric-desc">距离最佳实践</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 优化建议 -->
+            <div class="detail-section">
+              <h3>🔧 优化建议</h3>
+              <div class="optimization-suggestions">
+                <div v-if="statistics.averageProcessingTime > 36" class="suggestion-card priority">
+                  <div class="suggestion-icon">🚨</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">处理时间过长</div>
+                    <div class="suggestion-text">平均处理时间超过36小时，建议检查流程瓶颈并优化资源配置</div>
+                  </div>
+                </div>
+                
+                <div v-else-if="statistics.averageProcessingTime > 24" class="suggestion-card warning">
+                  <div class="suggestion-icon">⚠️</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">处理时间偏长</div>
+                    <div class="suggestion-text">处理时间超过24小时标准，建议优化工作流程或增加人员配置</div>
+                  </div>
+                </div>
+                
+                <div v-else class="suggestion-card success">
+                  <div class="suggestion-icon">✅</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">处理效率良好</div>
+                    <div class="suggestion-text">处理时间在合理范围内，继续保持当前流程</div>
+                  </div>
+                </div>
+                
+                <div class="suggestion-card info">
+                  <div class="suggestion-icon">📈</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">持续改进</div>
+                    <div class="suggestion-text">建议定期分析处理时间趋势，识别季节性变化和流程优化机会</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 权限信息说明 -->
+          <div v-if="currentUser" class="stats-permission-info">
+            <small>
+              📋 数据范围: 
+              <span v-if="currentUser.role === 'ADMIN'">全系统统计数据</span>
+              <span v-else-if="currentUser.role === 'DEPT_MANAGER'">{{ getDepartmentText(currentUser.department) }}统计数据</span>
+              <span v-else>{{ currentUser.organizationLevel }}统计数据</span>
+            </small>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1719,10 +2651,21 @@ onMounted(() => {
   align-items: center;
   padding: 10px 0;
   border-bottom: 1px solid #e0e0e0;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  border-radius: 5px;
+  margin: 2px 0;
 }
 
 .order-item:last-child {
   border-bottom: none;
+}
+
+.order-item.clickable:hover {
+  background: #f8f9fa;
+  padding: 10px 15px;
+  transform: translateX(5px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 .order-code {
@@ -1766,6 +2709,18 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.user-card:hover {
+  background: #e3f2fd;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+  transform: translateY(-2px);
+}
+
+.user-card.clickable:hover {
+  background: #e3f2fd;
 }
 
 .user-info {
@@ -1773,9 +2728,26 @@ onMounted(() => {
   margin-right: 10px;
 }
 
+.user-info h4 {
+  margin: 0 0 8px 0;
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+.user-info p {
+  margin: 4px 0;
+  font-size: 14px;
+  color: #666;
+  line-height: 1.4;
+}
+
 .user-status {
   min-width: 80px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
 .status-indicator {
@@ -1788,6 +2760,10 @@ onMounted(() => {
 
 .enabled {
   background: #28a745;
+}
+
+.disabled {
+  background: #dc3545;
 }
 
 .disabled {
@@ -2453,25 +3429,488 @@ onMounted(() => {
   color: #333;
 }
 
+/* Detailed Statistics Modal Styles */
+.stats-modal {
+  max-width: 900px;
+  max-height: 90vh;
+}
+
+.stats-detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+}
+
+/* Statistics Overview Cards */
+.stats-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+  margin-bottom: 25px;
+}
+
+.overview-card {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.overview-card.success {
+  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+  border-color: #28a745;
+}
+
+.overview-card.info {
+  background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+  border-color: #17a2b8;
+}
+
+.overview-card.warning {
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeeba 100%);
+  border-color: #ffc107;
+}
+
+.overview-icon {
+  font-size: 2.5em;
+  opacity: 0.8;
+}
+
+.overview-content {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.overview-number {
+  font-size: 28px;
+  font-weight: bold;
+  color: #333;
+  line-height: 1;
+}
+
+.overview-label {
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
+}
+
+/* Detailed Analysis Sections */
+.detail-section {
+  background: #f8f9fa;
+  padding: 25px;
+  border-radius: 12px;
+  border-left: 4px solid #007bff;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.detail-section h3 {
+  margin: 0 0 20px 0;
+  color: #333;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Completion Analysis Styles */
+.completion-analysis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  align-items: start;
+}
+
+.progress-chart {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+.chart-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  text-align: center;
+}
+
+.progress-ring {
+  position: relative;
+  width: 150px;
+  height: 150px;
+}
+
+.progress-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.progress-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.progress-percent {
+  font-size: 24px;
+  font-weight: bold;
+  color: #28a745;
+  line-height: 1;
+}
+
+.progress-label {
+  font-size: 12px;
+  color: #666;
+  margin-top: 5px;
+}
+
+.completion-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+/* Processing Analysis Styles */
+.processing-analysis {
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+}
+
+.time-chart {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.chart-header {
+  margin-bottom: 20px;
+}
+
+.chart-title, .chart-subtitle {
+  margin: 0;
+  color: #333;
+}
+
+.chart-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.chart-subtitle {
+  font-size: 14px;
+  color: #666;
+  margin-top: 5px;
+}
+
+.time-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.time-bar {
+  display: grid;
+  grid-template-columns: 120px 1fr 60px;
+  gap: 15px;
+  align-items: center;
+}
+
+.bar-label {
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
+}
+
+.bar-container {
+  height: 20px;
+  background: #e9ecef;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 10px;
+  transition: width 0.8s ease;
+  position: relative;
+}
+
+.bar-fill.current {
+  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+  animation: fillAnimation 1.5s ease-out;
+}
+
+.bar-fill.target {
+  background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+  animation: fillAnimation 1.5s ease-out 0.2s both;
+}
+
+.bar-fill.best {
+  background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+  animation: fillAnimation 1.5s ease-out 0.4s both;
+}
+
+@keyframes fillAnimation {
+  from { width: 0 !important; }
+}
+
+.bar-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  text-align: right;
+}
+
+.time-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.metric-item {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  transition: transform 0.3s ease;
+}
+
+.metric-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+}
+
+.metric-icon {
+  font-size: 2em;
+  opacity: 0.8;
+}
+
+.metric-content {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.metric-title {
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
+}
+
+.metric-value {
+  font-size: 18px;
+  font-weight: bold;
+  color: #333;
+}
+
+.metric-value.A\+ {
+  color: #28a745;
+}
+
+.metric-value.A {
+  color: #20c997;
+}
+
+.metric-value.B {
+  color: #ffc107;
+}
+
+.metric-value.C {
+  color: #fd7e14;
+}
+
+.metric-value.D {
+  color: #dc3545;
+}
+
+.metric-desc {
+  font-size: 12px;
+  color: #999;
+}
+
+.metric-status {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 15px;
+  text-align: center;
+}
+
+.metric-status.good {
+  background: #d4edda;
+  color: #155724;
+}
+
+.metric-status.needs-improvement {
+  background: #fff3cd;
+  color: #856404;
+}
+
+/* Suggestion Cards */
+.improvement-suggestions, .optimization-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.suggestion-card {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  border-left: 4px solid #e9ecef;
+  transition: all 0.3s ease;
+}
+
+.suggestion-card:hover {
+  transform: translateX(5px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+}
+
+.suggestion-card.priority {
+  border-left-color: #dc3545;
+  background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
+}
+
+.suggestion-card.warning {
+  border-left-color: #ffc107;
+  background: linear-gradient(135deg, #fffbf0 0%, #feebcb 100%);
+}
+
+.suggestion-card.success {
+  border-left-color: #28a745;
+  background: linear-gradient(135deg, #f0fff4 0%, #c6f6d5 100%);
+}
+
+.suggestion-card.info {
+  border-left-color: #17a2b8;
+  background: linear-gradient(135deg, #e6fffa 0%, #b2f5ea 100%);
+}
+
+.suggestion-icon {
+  font-size: 1.5em;
+  margin-top: 2px;
+}
+
+.suggestion-content {
+  flex: 1;
+}
+
+.suggestion-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.suggestion-text {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.5;
+}
+
+/* Permission Info */
+.stats-permission-info {
+  background: #f8f9fa;
+  padding: 10px 15px;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+  margin-top: 20px;
+  text-align: center;
+}
+
+.stats-permission-info small {
+  color: #666;
+  font-size: 13px;
+}
+
+/* Enhanced Dashboard Stat Cards */
+.stat-detail {
+  font-size: 12px;
+  color: #666;
+  margin-top: 5px;
+  font-style: italic;
+}
+
+.permission-info {
+  background: #f8f9fa;
+  padding: 10px 15px;
+  border-radius: 8px;
+  margin-top: 20px;
+  border: 1px solid #e9ecef;
+}
+
+.permission-info small {
+  color: #666;
+  font-size: 13px;
+}
+
+/* Responsive Design for Stats Modal */
 @media (max-width: 768px) {
-  .bulk-actions {
+  .stats-modal {
+    max-width: 95%;
+    max-height: 95vh;
+  }
+  
+  .stats-overview {
+    grid-template-columns: 1fr;
+  }
+  
+  .completion-analysis {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  
+  .time-metrics {
+    grid-template-columns: 1fr;
+  }
+  
+  .time-bar {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    text-align: center;
+  }
+  
+  .bar-container {
+    order: 2;
+  }
+  
+  .bar-label {
+    order: 1;
+    text-align: center;
+  }
+  
+  .bar-value {
+    order: 3;
+    text-align: center;
+  }
+  
+  .metric-item {
     flex-direction: column;
-    align-items: stretch;
+    text-align: center;
   }
   
-  .bulk-actions select,
-  .bulk-actions button {
-    width: 100%;
-  }
-  
-  .dispatch-stats {
+  .suggestion-card {
     flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-  }
-  
-  .selection-controls {
-    flex-wrap: wrap;
+    text-align: center;
   }
 }
 </style>
