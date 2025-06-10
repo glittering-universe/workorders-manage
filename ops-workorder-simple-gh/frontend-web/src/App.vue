@@ -65,6 +65,25 @@ const pendingApprovals = ref<WorkOrder[]>([])
 const statusFilter = ref<string>('')
 const isOverdueFilter = ref(false)
 
+// 搜索和筛选状态
+const searchQuery = ref<string>('')
+const priorityFilter = ref<string>('')
+const categoryFilter = ref<string>('')
+const creatorFilter = ref<string>('')
+
+// 通知系统
+const notifications = ref<Array<{
+  id: number
+  type: 'success' | 'error' | 'warning' | 'info'
+  title: string
+  message: string
+  timestamp: Date
+}>>([])
+
+// 实时刷新状态
+const autoRefresh = ref(true)
+const refreshInterval = ref<number | null>(null)
+
 // 登录表单
 const loginForm = reactive({
   username: '',
@@ -177,7 +196,7 @@ const toggleWorkOrderSelection = (workOrderId: number) => {
 
 const executeDispatch = async () => {
   if (selectedWorkOrderIds.value.length === 0 || !dispatchAssigneeId.value) {
-    alert('请选择工单和分派对象')
+    showNotification('warning', '批量分派', '请选择工单和分派对象')
     return
   }
   
@@ -247,9 +266,57 @@ const filterOverdue = () => {
 const clearFilters = () => {
   statusFilter.value = ''
   isOverdueFilter.value = false
+  searchQuery.value = ''
+  priorityFilter.value = ''
+  categoryFilter.value = ''
+  creatorFilter.value = ''
 }
 
 const apiBase = 'http://localhost:8080/api'
+
+// 通知系统函数
+let notificationId = 0
+const showNotification = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
+  const id = ++notificationId
+  const notification = {
+    id,
+    type,
+    title,
+    message,
+    timestamp: new Date()
+  }
+  notifications.value.push(notification)
+  
+  // 自动移除通知
+  setTimeout(() => {
+    removeNotification(id)
+  }, type === 'error' ? 5000 : 3000)
+}
+
+const removeNotification = (id: number) => {
+  const index = notifications.value.findIndex(n => n.id === id)
+  if (index > -1) {
+    notifications.value.splice(index, 1)
+  }
+}
+
+// 实时刷新功能
+const startAutoRefresh = () => {
+  if (refreshInterval.value) return
+  
+  refreshInterval.value = setInterval(async () => {
+    if (currentUser.value && !loading.value) {
+      await loadData()
+    }
+  }, 30000) // 每30秒刷新一次
+}
+
+const stopAutoRefresh = () => {
+  if (refreshInterval.value) {
+    clearInterval(refreshInterval.value)
+    refreshInterval.value = null
+  }
+}
 
 // API 函数
 const login = async () => {
@@ -262,13 +329,14 @@ const login = async () => {
       localStorage.setItem('currentUser', JSON.stringify(response.data))
       showLoginModal.value = false
       await loadData()
-      alert(`欢迎回来，${response.data.realName}！`)
+      showNotification('success', '登录成功', `欢迎回来，${response.data.realName}！`)
+      startAutoRefresh()
     } else {
-      alert('用户名或密码错误')
+      showNotification('error', '登录失败', '用户名或密码错误')
     }
   } catch (error) {
     console.error('登录失败:', error)
-    alert('登录失败，请检查用户名和密码')
+    showNotification('error', '登录失败', '请检查用户名和密码')
   } finally {
     loading.value = false
   }
@@ -283,6 +351,9 @@ const logout = () => {
   activeTab.value = 'dashboard'
   // 清除localStorage中的用户信息
   localStorage.removeItem('currentUser')
+  // 停止自动刷新
+  stopAutoRefresh()
+  showNotification('info', '已退出', '您已安全退出系统')
 }
 
 const loadData = async () => {
@@ -426,10 +497,10 @@ const createUser = async () => {
       organizationLevel: '市级'
     })
     showCreateUserForm.value = false
-    alert('用户创建成功！')
+    showNotification('success', '创建成功', '用户创建成功！')
   } catch (error) {
     console.error('创建用户失败:', error)
-    alert('创建用户失败，请检查输入或联系管理员')
+    showNotification('error', '创建失败', '创建用户失败，请检查输入或联系管理员')
   } finally {
     loading.value = false
   }
@@ -453,10 +524,10 @@ const createWorkOrder = async () => {
       slaMinutes: 240
     })
     showCreateForm.value = false
-    alert('工单创建成功！')
+    showNotification('success', '创建成功', '工单创建成功！')
   } catch (error) {
     console.error('创建工单失败:', error)
-    alert('创建工单失败，请检查后端服务')
+    showNotification('error', '创建失败', '创建工单失败，请检查后端服务')
   } finally {
     loading.value = false
   }
@@ -470,10 +541,10 @@ const submitWorkOrder = async (id: number) => {
     if (index !== -1) {
       workOrders.value[index] = response.data
     }
-    alert('工单提交成功！')
+    showNotification('success', '提交成功', '工单提交成功！')
   } catch (error) {
     console.error('提交工单失败:', error)
-    alert('提交工单失败')
+    showNotification('error', '提交失败', '提交工单失败')
   } finally {
     loading.value = false
   }
@@ -493,10 +564,10 @@ const approveWorkOrder = async (id: number) => {
     // 重新加载待审批工单列表和所有工单
     await loadPendingApprovals()
     await loadWorkOrders()
-    alert('工单审批成功！')
+    showNotification('success', '审批成功', '工单审批成功！')
   } catch (error) {
     console.error('审批工单失败:', error)
-    alert('审批工单失败')
+    showNotification('error', '审批失败', '审批工单失败')
   } finally {
     loading.value = false
   }
@@ -516,27 +587,27 @@ const rejectWorkOrder = async (id: number) => {
     // 重新加载待审批工单列表和所有工单
     await loadPendingApprovals()
     await loadWorkOrders()
-    alert('工单已拒绝！')
+    showNotification('warning', '已拒绝', '工单已拒绝！')
   } catch (error) {
     console.error('拒绝工单失败:', error)
-    alert('拒绝工单失败')
+    showNotification('error', '拒绝失败', '拒绝工单失败')
   } finally {
     loading.value = false
   }
 }
 
-const assignWorkOrder = async (id: number, operatorId: number) => {
+const assignWorkOrder = async (id: number, assigneeId: number) => {
   loading.value = true
   try {
-    const response = await axios.post(`${apiBase}/orders/${id}/assign?assigneeId=${operatorId}&assignerId=${currentUser.value?.id}`)
+    const response = await axios.post(`${apiBase}/orders/${id}/assign?assigneeId=${assigneeId}&assignerId=${currentUser.value?.id}`)
     const index = workOrders.value.findIndex(wo => wo.id === id)
     if (index !== -1) {
       workOrders.value[index] = response.data
     }
-    alert('工单分派成功！')
+    showNotification('success', '分派成功', '工单分派成功！')
   } catch (error) {
     console.error('分派工单失败:', error)
-    alert('分派工单失败')
+    showNotification('error', '分派失败', '分派工单失败')
   } finally {
     loading.value = false
   }
@@ -553,10 +624,10 @@ const completeWorkOrder = async (id: number) => {
     if (index !== -1) {
       workOrders.value[index] = response.data
     }
-    alert('工单完成！')
+    showNotification('success', '完成成功', '工单已完成！')
   } catch (error) {
     console.error('完成工单失败:', error)
-    alert('完成工单失败')
+    showNotification('error', '完成失败', '完成工单失败')
   } finally {
     loading.value = false
   }
@@ -579,10 +650,10 @@ const batchAssignWorkOrders = async (workOrderIds: number[], assigneeId: number)
       }
     })
     
-    alert(`成功分派 ${workOrderIds.length} 个工单！`)
+    showNotification('success', '批量分派成功', `成功分派 ${workOrderIds.length} 个工单！`)
   } catch (error) {
     console.error('批量分派工单失败:', error)
-    alert('批量分派工单失败')
+    showNotification('error', '批量分派失败', '批量分派工单失败')
   } finally {
     loading.value = false
   }
@@ -696,8 +767,33 @@ const filteredWorkOrders = computed(() => {
       break
   }
   
-  // 然后应用状态和逾期过滤
+  // 然后应用搜索和高级筛选
   let filtered = roleFilteredOrders
+  
+  // 搜索过滤 - 标题、描述、工单编号
+  if (searchQuery.value.trim()) {
+    const query = searchQuery.value.toLowerCase().trim()
+    filtered = filtered.filter(wo => 
+      wo.title.toLowerCase().includes(query) ||
+      (wo.description && wo.description.toLowerCase().includes(query)) ||
+      (wo.woCode && wo.woCode.toLowerCase().includes(query))
+    )
+  }
+  
+  // 优先级过滤
+  if (priorityFilter.value) {
+    filtered = filtered.filter(wo => wo.priority === priorityFilter.value)
+  }
+  
+  // 分类过滤
+  if (categoryFilter.value) {
+    filtered = filtered.filter(wo => wo.category === categoryFilter.value)
+  }
+  
+  // 创建人过滤
+  if (creatorFilter.value) {
+    filtered = filtered.filter(wo => wo.creatorId?.toString() === creatorFilter.value)
+  }
   
   // 状态过滤
   if (statusFilter.value) {
@@ -925,10 +1021,94 @@ onMounted(() => {
             </button>
           </div>
 
+          <!-- 搜索和高级筛选 -->
+          <div class="search-filter-section">
+            <div class="search-bar">
+              <div class="search-input-group">
+                <span class="search-icon">🔍</span>
+                <input 
+                  v-model="searchQuery" 
+                  type="text" 
+                  placeholder="搜索工单标题、描述、编号..."
+                  class="search-input"
+                />
+                <button 
+                  v-if="searchQuery" 
+                  @click="searchQuery = ''" 
+                  class="clear-search-btn"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            
+            <div class="advanced-filters">
+              <div class="filter-group">
+                <label>优先级:</label>
+                <select v-model="priorityFilter" class="filter-select">
+                  <option value="">全部优先级</option>
+                  <option value="HIGH">高</option>
+                  <option value="MEDIUM">中</option>
+                  <option value="LOW">低</option>
+                </select>
+              </div>
+              
+              <div class="filter-group">
+                <label>分类:</label>
+                <select v-model="categoryFilter" class="filter-select">
+                  <option value="">全部分类</option>
+                  <option value="MAINTENANCE">维护</option>
+                  <option value="INCIDENT">故障</option>
+                  <option value="REQUEST">请求</option>
+                  <option value="CHANGE">变更</option>
+                  <option value="EMERGENCY">紧急</option>
+                </select>
+              </div>
+              
+              <div v-if="currentUser && ['ADMIN', 'DEPT_MANAGER'].includes(currentUser.role)" class="filter-group">
+                <label>创建人:</label>
+                <select v-model="creatorFilter" class="filter-select">
+                  <option value="">全部创建人</option>
+                  <option 
+                    v-for="user in users" 
+                    :key="user.id" 
+                    :value="user.id.toString()"
+                  >
+                    {{ user.realName }}
+                  </option>
+                </select>
+              </div>
+              
+              <button 
+                v-if="searchQuery || priorityFilter || categoryFilter || creatorFilter || statusFilter || isOverdueFilter"
+                @click="clearFilters" 
+                class="btn btn-secondary btn-sm clear-filters-btn"
+              >
+                清空筛选
+              </button>
+            </div>
+          </div>
+
           <!-- 过滤器状态栏 -->
-          <div v-if="statusFilter || isOverdueFilter" class="filter-bar">
+          <div v-if="statusFilter || isOverdueFilter || searchQuery || priorityFilter || categoryFilter || creatorFilter" class="filter-bar">
             <div class="active-filters">
               <span class="filter-label">当前过滤:</span>
+              <span v-if="searchQuery" class="filter-tag">
+                搜索: "{{ searchQuery }}"
+                <button @click="searchQuery = ''" class="filter-remove">&times;</button>
+              </span>
+              <span v-if="priorityFilter" class="filter-tag">
+                优先级: {{ getPriorityText(priorityFilter) }}
+                <button @click="priorityFilter = ''" class="filter-remove">&times;</button>
+              </span>
+              <span v-if="categoryFilter" class="filter-tag">
+                分类: {{ getCategoryText(categoryFilter) }}
+                <button @click="categoryFilter = ''" class="filter-remove">&times;</button>
+              </span>
+              <span v-if="creatorFilter" class="filter-tag">
+                创建人: {{ users.find(u => u.id.toString() === creatorFilter)?.realName || '未知' }}
+                <button @click="creatorFilter = ''" class="filter-remove">&times;</button>
+              </span>
               <span v-if="statusFilter" class="filter-tag">
                 状态: {{ statusFilter === 'PROCESSING' ? '处理中' : getStatusText(statusFilter) }}
                 <button @click="statusFilter = ''" class="filter-remove">&times;</button>
@@ -2437,6 +2617,32 @@ onMounted(() => {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- 通知系统 -->
+    <div class="notification-container">
+      <transition-group name="notification" tag="div">
+        <div 
+          v-for="notification in notifications" 
+          :key="notification.id" 
+          :class="['notification-toast', notification.type]"
+          @click="removeNotification(notification.id)"
+        >
+          <div class="notification-icon">
+            <span v-if="notification.type === 'success'">✅</span>
+            <span v-else-if="notification.type === 'error'">❌</span>
+            <span v-else-if="notification.type === 'warning'">⚠️</span>
+            <span v-else-if="notification.type === 'info'">ℹ️</span>
+          </div>
+          <div class="notification-content">
+            <div class="notification-title">{{ notification.title }}</div>
+            <div class="notification-message">{{ notification.message }}</div>
+          </div>
+          <button class="notification-close" @click.stop="removeNotification(notification.id)">
+            ×
+          </button>
+        </div>
+      </transition-group>
     </div>
   </div>
 </template>
@@ -3950,5 +4156,233 @@ onMounted(() => {
     flex-direction: column;
     text-align: center;
   }
+}
+
+/* Search and Filter Styles */
+.search-filter-section {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 10px;
+  margin: 20px 0;
+  border: 1px solid #e0e0e0;
+}
+
+.search-bar {
+  margin-bottom: 15px;
+}
+
+.search-input-group {
+  position: relative;
+  max-width: 500px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #666;
+  font-size: 16px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 12px 15px 12px 45px;
+  border: 2px solid #e0e0e0;
+  border-radius: 25px;
+  font-size: 14px;
+  transition: all 0.3s ease;
+  background: white;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.clear-search-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.3s ease;
+}
+
+.clear-search-btn:hover {
+  background: #5a6268;
+}
+
+.advanced-filters {
+  display: flex;
+  gap: 20px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 150px;
+}
+
+.filter-group label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #555;
+}
+
+.filter-select {
+  padding: 8px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 5px;
+  font-size: 14px;
+  background: white;
+  transition: border-color 0.3s ease;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.clear-filters-btn {
+  padding: 8px 16px;
+  margin-left: auto;
+}
+
+/* Notification System Styles */
+.notification-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  max-width: 400px;
+  pointer-events: none;
+}
+
+.notification-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  pointer-events: all;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+  transition: all 0.3s ease;
+}
+
+.notification-toast:hover {
+  transform: translateX(-5px);
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.2);
+}
+
+.notification-toast.success {
+  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+  border: 1px solid #b8dabd;
+  color: #155724;
+}
+
+.notification-toast.error {
+  background: linear-gradient(135deg, #f8d7da 0%, #f1b0b7 100%);
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+}
+
+.notification-toast.warning {
+  background: linear-gradient(135deg, #fff3cd 0%, #fae19d 100%);
+  border: 1px solid #ffeaa7;
+  color: #856404;
+}
+
+.notification-toast.info {
+  background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+  border: 1px solid #b8dadf;
+  color: #0c5460;
+}
+
+.notification-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.notification-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+
+.notification-message {
+  font-size: 13px;
+  line-height: 1.3;
+  opacity: 0.9;
+}
+
+.notification-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: currentColor;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.3s ease;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.notification-close:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* Notification Transitions */
+.notification-enter-active,
+.notification-leave-active {
+  transition: all 0.4s ease;
+}
+
+.notification-enter-from {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.notification-leave-to {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.notification-move {
+  transition: transform 0.4s ease;
 }
 </style>
