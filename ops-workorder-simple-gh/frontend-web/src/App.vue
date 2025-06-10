@@ -300,8 +300,15 @@ const loadPendingApprovals = async () => {
   }
   
   try {
-    const response = await axios.get(`${apiBase}/orders/pending-approvals?approverId=${currentUser.value.id}`)
-    pendingApprovals.value = response.data
+    if (currentUser.value.role === 'ADMIN' || currentUser.value.role === 'DEPT_MANAGER') {
+      // Admin和部门经理用户可以看到所有待审批工单
+      const response = await axios.get(`${apiBase}/orders`)
+      pendingApprovals.value = response.data.filter((wo: WorkOrder) => wo.status === 'SUBMITTED')
+    } else {
+      // 其他用户只能看到分配给自己的待审批工单
+      const response = await axios.get(`${apiBase}/orders/pending-approvals?approverId=${currentUser.value.id}`)
+      pendingApprovals.value = response.data
+    }
   } catch (error) {
     console.error('加载待审批工单失败:', error)
   }
