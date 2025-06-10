@@ -57,7 +57,7 @@ public class WorkOrderService {
         List<ApprovalFlow> pendingApprovals = approvalFlowRepository.findPendingApprovalsByApproverId(approverId);
         return pendingApprovals.stream()
                 .map(af -> workOrderRepository.findById(af.getWorkOrderId()).orElse(null))
-                .filter(wo -> wo != null)
+                .filter(wo -> wo != null && wo.getStatus() == WorkOrder.Status.SUBMITTED)
                 .toList();
     }
 

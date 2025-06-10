@@ -249,7 +249,7 @@ const clearFilters = () => {
   isOverdueFilter.value = false
 }
 
-const apiBase = 'http://localhost:8081/api'
+const apiBase = 'http://localhost:8080/api'
 
 // API 函数
 const login = async () => {
@@ -300,7 +300,7 @@ const loadPendingApprovals = async () => {
   }
   
   try {
-    const response = await axios.get(`${apiBase}/orders/pending-approvals?userId=${currentUser.value.id}`)
+    const response = await axios.get(`${apiBase}/orders/pending-approvals?approverId=${currentUser.value.id}`)
     pendingApprovals.value = response.data
   } catch (error) {
     console.error('加载待审批工单失败:', error)
@@ -483,10 +483,34 @@ const approveWorkOrder = async (id: number) => {
     if (index !== -1) {
       workOrders.value[index] = response.data
     }
+    // 重新加载待审批工单列表
+    await loadPendingApprovals()
     alert('工单审批成功！')
   } catch (error) {
     console.error('审批工单失败:', error)
     alert('审批工单失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const rejectWorkOrder = async (id: number) => {
+  loading.value = true
+  try {
+    const payload = {
+      comment: '审批拒绝'
+    }
+    const response = await axios.post(`${apiBase}/orders/${id}/reject?approverId=${currentUser.value?.id}`, payload)
+    const index = workOrders.value.findIndex(wo => wo.id === id)
+    if (index !== -1) {
+      workOrders.value[index] = response.data
+    }
+    // 重新加载待审批工单列表
+    await loadPendingApprovals()
+    alert('工单已拒绝！')
+  } catch (error) {
+    console.error('拒绝工单失败:', error)
+    alert('拒绝工单失败')
   } finally {
     loading.value = false
   }
@@ -1227,7 +1251,10 @@ onMounted(() => {
         <div class="approval-center">
           <h2>审批中心</h2>
           <div class="pending-approvals">
-            <div v-for="order in workOrders.filter(wo => wo.status === 'SUBMITTED')" :key="order.id" class="approval-card">
+            <div v-if="pendingApprovals.length === 0" class="empty-state">
+              <p>暂无待审批工单</p>
+            </div>
+            <div v-for="order in pendingApprovals" :key="order.id" class="approval-card">
               <div class="approval-header">
                 <span class="wo-code">{{ order.woCode }}</span>
                 <span class="priority" :class="order.priority.toLowerCase()">{{ getPriorityText(order.priority) }}</span>
@@ -1248,6 +1275,8 @@ onMounted(() => {
                   </button>
                   <button 
                     v-if="currentUser && ['ADMIN', 'DEPT_MANAGER', 'APPROVER'].includes(currentUser.role)"
+                    @click="rejectWorkOrder(order.id!)" 
+                    :disabled="loading"
                     class="btn btn-danger btn-sm"
                   >
                     拒绝
