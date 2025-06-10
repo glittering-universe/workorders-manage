@@ -483,8 +483,9 @@ const approveWorkOrder = async (id: number) => {
     if (index !== -1) {
       workOrders.value[index] = response.data
     }
-    // 重新加载待审批工单列表
+    // 重新加载待审批工单列表和所有工单
     await loadPendingApprovals()
+    await loadWorkOrders()
     alert('工单审批成功！')
   } catch (error) {
     console.error('审批工单失败:', error)
@@ -505,8 +506,9 @@ const rejectWorkOrder = async (id: number) => {
     if (index !== -1) {
       workOrders.value[index] = response.data
     }
-    // 重新加载待审批工单列表
+    // 重新加载待审批工单列表和所有工单
     await loadPendingApprovals()
+    await loadWorkOrders()
     alert('工单已拒绝！')
   } catch (error) {
     console.error('拒绝工单失败:', error)

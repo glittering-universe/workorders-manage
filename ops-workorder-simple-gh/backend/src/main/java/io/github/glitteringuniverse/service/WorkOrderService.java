@@ -151,7 +151,8 @@ public class WorkOrderService {
         }
         
         ApprovalFlow currentStep = pendingApprovals.get(0);
-        if (!currentStep.getApproverId().equals(approverId)) {
+        // Admin用户具有超级审批权限，可以审批任何工单
+        if (!currentStep.getApproverId().equals(approverId) && approver.getRole() != User.Role.ADMIN) {
             throw new IllegalStateException("不是当前审批人");
         }
         
