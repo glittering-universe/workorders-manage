@@ -6,7 +6,8 @@ interface User {
   id: number
   username: string
   realName: string
-  email: string
+  email?: string
+  phone?: string
   role: string
   department: string
   organizationLevel: string
@@ -110,6 +111,10 @@ const showDispatchCenter = ref(false)
 const selectedWorkOrderIds = ref<number[]>([])
 const dispatchAssigneeId = ref<number | null>(null)
 
+// 工单编辑
+const showEditForm = ref(false)
+const editingWorkOrder = ref<WorkOrder | null>(null)
+
 // 工单详情
 const selectedWorkOrder = ref<WorkOrder | null>(null)
 const showWorkOrderDetail = ref(false)
@@ -154,121 +159,190 @@ const closeDetailedStats = () => {
 
 // 个人中心
 const showPersonalCenter = ref(false)
+const isEditingProfile = ref(false)
+const editingUserData = ref({
+  email: '',
+  phone: '',
+  realName: ''
+})
 
 const openPersonalCenter = () => {
   showPersonalCenter.value = true
+  isEditingProfile.value = false
 }
 
 const closePersonalCenter = () => {
   showPersonalCenter.value = false
+  isEditingProfile.value = false
 }
 
-// 效率等级评定辅助函数
-const getEfficiencyGrade = (avgProcessingTime: number): string => {
-  if (avgProcessingTime <= 2) return 'A+'
-  if (avgProcessingTime <= 4) return 'A'
-  if (avgProcessingTime <= 8) return 'B'
-  if (avgProcessingTime <= 16) return 'C'
-  return 'D'
-}
-
-const getEfficiencyGradeText = (grade: string): string => {
-  const gradeTexts = {
-    'A+': '优秀',
-    'A': '良好',
-    'B': '一般',
-    'C': '待改进',
-    'D': '需优化'
-  }
-  return gradeTexts[grade] || '未知'
-}
-
-// 分派中心功能
-const openDispatchCenter = () => {
-  showDispatchCenter.value = true
-  selectedWorkOrderIds.value = []
-  dispatchAssigneeId.value = null
-}
-
-const closeDispatchCenter = () => {
-  showDispatchCenter.value = false
-  selectedWorkOrderIds.value = []
-  dispatchAssigneeId.value = null
-}
-
-const toggleWorkOrderSelection = (workOrderId: number) => {
-  const index = selectedWorkOrderIds.value.indexOf(workOrderId)
-  if (index > -1) {
-    selectedWorkOrderIds.value.splice(index, 1)
-  } else {
-    selectedWorkOrderIds.value.push(workOrderId)
+const startEditProfile = () => {
+  isEditingProfile.value = true
+  editingUserData.value = {
+    email: currentUser.value?.email || '',
+    phone: currentUser.value?.phone || '',
+    realName: currentUser.value?.realName || ''
   }
 }
 
-const executeDispatch = async () => {
-  if (selectedWorkOrderIds.value.length === 0 || !dispatchAssigneeId.value) {
-    showNotification('warning', '批量分派', '请选择工单和分派对象')
-    return
+const cancelEditProfile = () => {
+  isEditingProfile.value = false
+  editingUserData.value = {
+    email: '',
+    phone: '',
+    realName: ''
   }
+}
+
+const saveProfileChanges = async () => {
+  if (!currentUser.value?.id) return
   
-  await batchAssignWorkOrders(selectedWorkOrderIds.value, dispatchAssigneeId.value)
-  closeDispatchCenter()
-}
-
-// 编辑草稿工单
-const editingWorkOrder = ref<WorkOrder | null>(null)
-const showEditForm = ref(false)
-
-const editWorkOrder = (workOrder: WorkOrder) => {
-  editingWorkOrder.value = { ...workOrder }
-  showEditForm.value = true
-}
-
-const updateWorkOrder = async () => {
-  if (!editingWorkOrder.value) return
-  
-  loading.value = true
   try {
-    const payload = {
-      title: editingWorkOrder.value.title,
-      description: editingWorkOrder.value.description,
-      category: editingWorkOrder.value.category,
-      priority: editingWorkOrder.value.priority,
-      slaMinutes: editingWorkOrder.value.slaMinutes
+    loading.value = true
+    
+    // 基本验证
+    if (!editingUserData.value.realName.trim()) {
+      showNotification('error', '保存失败', '真实姓名不能为空')
+      return
     }
     
-    const response = await axios.put(`${apiBase}/orders/${editingWorkOrder.value.id}`, payload)
-    const index = workOrders.value.findIndex(wo => wo.id === editingWorkOrder.value!.id)
-    if (index !== -1) {
-      workOrders.value[index] = response.data as WorkOrder
+    if (editingUserData.value.email && !isValidEmail(editingUserData.value.email)) {
+      showNotification('error', '保存失败', '请输入有效的邮箱地址')
+      return
     }
     
-    showEditForm.value = false
-    editingWorkOrder.value = null
-    alert('工单更新成功！')
+    if (editingUserData.value.phone && !isValidPhone(editingUserData.value.phone)) {
+      showNotification('error', '保存失败', '请输入有效的电话号码')
+      return
+    }
+    
+    const updateData = {
+      id: currentUser.value.id,
+      email: editingUserData.value.email.trim() || undefined,
+      phone: editingUserData.value.phone.trim() || undefined,
+      realName: editingUserData.value.realName.trim()
+    }
+    
+    const response = await axios.put(`http://localhost:8080/api/users/${currentUser.value.id}`, updateData)
+    
+    // 更新当前用户信息
+    currentUser.value = { ...currentUser.value, ...updateData }
+    
+    // 更新用户列表中的对应用户
+    const userIndex = users.value.findIndex(u => u.id === currentUser.value!.id)
+    if (userIndex !== -1) {
+      users.value[userIndex] = { ...users.value[userIndex], ...updateData }
+    }
+    
+    isEditingProfile.value = false
+    showNotification('success', '保存成功', '个人信息已更新')
+    
   } catch (error) {
-    console.error('更新工单失败:', error)
-    alert('更新工单失败')
+    console.error('保存个人信息失败:', error)
+    showNotification('error', '保存失败', '更新个人信息时发生错误')
   } finally {
     loading.value = false
   }
 }
 
-const cancelEdit = () => {
-  showEditForm.value = false
-  editingWorkOrder.value = null
+// 验证邮箱格式
+const isValidEmail = (email: string): boolean => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  return emailRegex.test(email)
 }
 
-// 仪表板点击过滤
+// 验证电话格式
+const isValidPhone = (phone: string): boolean => {
+  const phoneRegex = /^1[3-9]\d{9}$/
+  return phoneRegex.test(phone)
+}
+
+// 过滤功能函数
 const filterByStatus = (status: string) => {
-  activeTab.value = 'workorders'
   statusFilter.value = status
+  activeTab.value = 'workorders'
 }
 
 const filterOverdue = () => {
-  activeTab.value = 'workorders'
   isOverdueFilter.value = true
-  statusFilter.value = ''
+  activeTab.value = 'workorders'
+}
+
+// 工单编辑功能
+const editWorkOrder = (workOrder: WorkOrder) => {
+  editingWorkOrder.value = { ...workOrder }
+  showEditForm.value = true
+}
+
+const cancelEdit = () => {
+  editingWorkOrder.value = null
+  showEditForm.value = false
+}
+
+const updateWorkOrder = async () => {
+  if (!editingWorkOrder.value?.id) return
+  
+  loading.value = true
+  try {
+    const response = await axios.put(`${apiBase}/orders/${editingWorkOrder.value.id}`, editingWorkOrder.value)
+    const index = workOrders.value.findIndex(wo => wo.id === editingWorkOrder.value!.id)
+    if (index !== -1) {
+      workOrders.value[index] = response.data as WorkOrder
+    }
+    showEditForm.value = false
+    editingWorkOrder.value = null
+    showNotification('success', '更新成功', '工单更新成功！')
+  } catch (error) {
+    console.error('更新工单失败:', error)
+    showNotification('error', '更新失败', '更新工单失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 批量分派功能
+const toggleWorkOrderSelection = (id: number) => {
+  const index = selectedWorkOrderIds.value.indexOf(id)
+  if (index === -1) {
+    selectedWorkOrderIds.value.push(id)
+  } else {
+    selectedWorkOrderIds.value.splice(index, 1)
+  }
+}
+
+const executeDispatch = async () => {
+  if (selectedWorkOrderIds.value.length === 0 || !dispatchAssigneeId.value) return
+  
+  loading.value = true
+  try {
+    await batchAssignWorkOrders(selectedWorkOrderIds.value, dispatchAssigneeId.value)
+    selectedWorkOrderIds.value = []
+    dispatchAssigneeId.value = null
+  } catch (error) {
+    console.error('批量分派失败:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 效率等级评估功能
+const getEfficiencyGrade = (avgTime: number): string => {
+  if (avgTime <= 8) return 'A+'
+  if (avgTime <= 16) return 'A'
+  if (avgTime <= 24) return 'B'
+  if (avgTime <= 48) return 'C'
+  return 'D'
+}
+
+const getEfficiencyGradeText = (grade: string): string => {
+  const gradeMap: { [key: string]: string } = {
+    'A+': '优秀',
+    'A': '良好', 
+    'B': '一般',
+    'C': '需改进',
+    'D': '待优化'
+  }
+  return gradeMap[grade] || '未知'
 }
 
 // Remove duplicate - using the role-based filteredWorkOrders below
@@ -2632,6 +2706,496 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- 工单详情模态框 -->
+    <div v-if="showWorkOrderDetail && selectedWorkOrder" class="modal-overlay" @click="closeWorkOrderDetail">
+      <div class="modal detail-modal" @click.stop>
+        <div class="modal-header">
+          <h2>📋 工单详情</h2>
+          <button @click="closeWorkOrderDetail" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="detail-section">
+            <h3>基本信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>工单编号:</label>
+                <span>{{ selectedWorkOrder.woCode }}</span>
+              </div>
+              <div class="detail-item">
+                <label>标题:</label>
+                <span>{{ selectedWorkOrder.title }}</span>
+              </div>
+              <div class="detail-item">
+                <label>状态:</label>
+                <span class="status-badge" :style="{ backgroundColor: getStatusColor(selectedWorkOrder.status || '') }">
+                  {{ getStatusText(selectedWorkOrder.status || '') }}
+                </span>
+              </div>
+              <div class="detail-item">
+                <label>分类:</label>
+                <span>{{ getCategoryText(selectedWorkOrder.category) }}</span>
+              </div>
+              <div class="detail-item">
+                <label>优先级:</label>
+                <span>{{ getPriorityText(selectedWorkOrder.priority) }}</span>
+              </div>
+              <div class="detail-item">
+                <label>SLA时间:</label>
+                <span>{{ selectedWorkOrder.slaMinutes }}分钟</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h3>人员信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>创建人:</label>
+                <span>{{ selectedWorkOrder.creatorName || '未知' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>审批人:</label>
+                <span>{{ selectedWorkOrder.approverName || '待审批' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>处理人:</label>
+                <span>{{ selectedWorkOrder.assigneeName || '未分派' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h3>时间信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>创建时间:</label>
+                <span>{{ selectedWorkOrder.createdAt ? new Date(selectedWorkOrder.createdAt).toLocaleString() : '未知' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>更新时间:</label>
+                <span>{{ selectedWorkOrder.updatedAt ? new Date(selectedWorkOrder.updatedAt).toLocaleString() : '未知' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>截止时间:</label>
+                <span>{{ selectedWorkOrder.deadline ? new Date(selectedWorkOrder.deadline).toLocaleString() : '未设置' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>完成时间:</label>
+                <span>{{ selectedWorkOrder.completedAt ? new Date(selectedWorkOrder.completedAt).toLocaleString() : '未完成' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="selectedWorkOrder.description" class="detail-section">
+            <h3>详细描述</h3>
+            <div class="description-content">
+              {{ selectedWorkOrder.description }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 编辑工单模态框 -->
+    <div v-if="showEditForm && editingWorkOrder" class="modal-overlay" @click="cancelEdit">
+      <div class="modal edit-modal" @click.stop>
+        <div class="modal-header">
+          <h2>✏️ 编辑工单</h2>
+          <button @click="cancelEdit" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form @submit.prevent="updateWorkOrder">
+            <div class="form-group">
+              <label>工单标题:</label>
+              <input 
+                v-model="editingWorkOrder.title" 
+                type="text" 
+                required 
+                class="form-control"
+              />
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label>分类:</label>
+                <select v-model="editingWorkOrder.category" class="form-control">
+                  <option value="MAINTENANCE">维护</option>
+                  <option value="INCIDENT">故障</option>
+                  <option value="REQUEST">请求</option>
+                  <option value="CHANGE">变更</option>
+                  <option value="EMERGENCY">紧急</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>优先级:</label>
+                <select v-model="editingWorkOrder.priority" class="form-control">
+                  <option value="HIGH">高</option>
+                  <option value="MEDIUM">中</option>
+                  <option value="LOW">低</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label>SLA时间 (分钟):</label>
+              <input 
+                v-model.number="editingWorkOrder.slaMinutes" 
+                type="number" 
+                min="1" 
+                required 
+                class="form-control"
+              />
+            </div>
+            
+            <div class="form-group">
+              <label>详细描述:</label>
+              <textarea 
+                v-model="editingWorkOrder.description" 
+                rows="4" 
+                class="form-control"
+              ></textarea>
+            </div>
+            
+            <div class="form-actions">
+              <button type="submit" :disabled="loading" class="btn btn-success">
+                {{ loading ? '更新中...' : '保存更改' }}
+              </button>
+              <button type="button" @click="cancelEdit" class="btn btn-secondary">
+                取消
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- 用户详情模态框 -->
+    <div v-if="showUserDetail && selectedUser" class="modal-overlay" @click="closeUserDetail">
+      <div class="modal detail-modal" @click.stop>
+        <div class="modal-header">
+          <h2>👤 用户详情</h2>
+          <button @click="closeUserDetail" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="detail-section">
+            <h3>基本信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>真实姓名:</label>
+                <span>{{ selectedUser.realName }}</span>
+              </div>
+              <div class="detail-item">
+                <label>用户名:</label>
+                <span>{{ selectedUser.username }}</span>
+              </div>
+              <div class="detail-item">
+                <label>邮箱:</label>
+                <span>{{ selectedUser.email }}</span>
+              </div>
+              <div class="detail-item">
+                <label>角色:</label>
+                <span class="role-badge">{{ getRoleText(selectedUser.role) }}</span>
+              </div>
+              <div class="detail-item">
+                <label>部门:</label>
+                <span>{{ getDepartmentText(selectedUser.department) }}</span>
+              </div>
+              <div class="detail-item">
+                <label>组织级别:</label>
+                <span>{{ selectedUser.organizationLevel }}</span>
+              </div>
+              <div class="detail-item">
+                <label>账户状态:</label>
+                <span :class="['status-badge', selectedUser.enabled ? 'enabled' : 'disabled']">
+                  {{ selectedUser.enabled ? '启用' : '禁用' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 详细统计模态框 -->
+    <div v-if="showDetailedStats" class="modal-overlay" @click="closeDetailedStats">
+      <div class="modal detail-modal stats-modal" @click.stop>
+        <div class="modal-header">
+          <h2>
+            <span v-if="selectedStatType === 'completion'">📈 按时完成率详细分析</span>
+            <span v-else-if="selectedStatType === 'processing'">⏱️ 处理时间详细分析</span>
+            <span v-else>📊 统计分析</span>
+          </h2>
+          <button @click="closeDetailedStats" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          
+          <!-- 按时完成率详细分析 -->
+          <div v-if="selectedStatType === 'completion' && statistics" class="stats-detail-content">
+            <!-- 关键指标概览 -->
+            <div class="stats-overview">
+              <div class="overview-card success">
+                <div class="overview-icon">✅</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ statistics.onTimeCompletionRate.toFixed(1) }}%</div>
+                  <div class="overview-label">当前按时完成率</div>
+                </div>
+              </div>
+              <div class="overview-card info">
+                <div class="overview-icon">📊</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ statistics.completedOrders || 0 }}</div>
+                  <div class="overview-label">已完成工单总数</div>
+                </div>
+              </div>
+              <div class="overview-card warning">
+                <div class="overview-icon">⚠️</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ Math.round((statistics.completedOrders || 0) * (100 - statistics.onTimeCompletionRate) / 100) }}</div>
+                  <div class="overview-label">逾期完成工单</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 完成率详细分析 -->
+            <div class="detail-section">
+              <h3>📈 完成率分析</h3>
+              <div class="completion-analysis">
+                <div class="progress-chart">
+                  <div class="chart-title">按时完成率可视化</div>
+                  <div class="progress-ring">
+                    <svg viewBox="0 0 120 120" class="progress-svg">
+                      <circle cx="60" cy="60" r="54" stroke="#e0e0e0" stroke-width="12" fill="none"/>
+                      <circle 
+                        cx="60" 
+                        cy="60" 
+                        r="54" 
+                        stroke="#28a745" 
+                        stroke-width="12" 
+                        fill="none"
+                        :stroke-dasharray="`${statistics.onTimeCompletionRate * 3.39} 339`"
+                        stroke-linecap="round"
+                        transform="rotate(-90 60 60)"
+                      />
+                    </svg>
+                    <div class="progress-text">
+                      <div class="progress-percent">{{ statistics.onTimeCompletionRate.toFixed(1) }}%</div>
+                      <div class="progress-label">按时完成</div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="completion-metrics">
+                  <div class="metric-item">
+                    <div class="metric-icon">🎯</div>
+                    <div class="metric-content">
+                      <div class="metric-title">目标完成率</div>
+                      <div class="metric-value">≥ 90%</div>
+                      <div class="metric-status" :class="statistics.onTimeCompletionRate >= 90 ? 'good' : 'needs-improvement'">
+                        {{ statistics.onTimeCompletionRate >= 90 ? '达标' : '需改进' }}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="metric-item">
+                    <div class="metric-icon">📅</div>
+                    <div class="metric-content">
+                      <div class="metric-title">按时完成工单</div>
+                      <div class="metric-value">{{ Math.round((statistics.completedOrders || 0) * statistics.onTimeCompletionRate / 100) }}</div>
+                      <div class="metric-desc">/ {{ statistics.completedOrders || 0 }} 已完成</div>
+                    </div>
+                  </div>
+                  
+                  <div class="metric-item">
+                    <div class="metric-icon">⏰</div>
+                    <div class="metric-content">
+                      <div class="metric-title">逾期工单</div>
+                      <div class="metric-value">{{ Math.round((statistics.completedOrders || 0) * (100 - statistics.onTimeCompletionRate) / 100) }}</div>
+                      <div class="metric-desc">需关注改进</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 改进建议 -->
+            <div class="detail-section">
+              <h3>💡 改进建议</h3>
+              <div class="improvement-suggestions">
+                <div v-if="statistics.onTimeCompletionRate < 90" class="suggestion-card priority">
+                  <div class="suggestion-icon">🚨</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">紧急改进项</div>
+                    <div class="suggestion-text">按时完成率低于90%，建议优化SLA时间设置或加强工单跟踪</div>
+                  </div>
+                </div>
+                
+                <div v-if="statistics.overdueOrders > 0" class="suggestion-card warning">
+                  <div class="suggestion-icon">⚠️</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">逾期工单处理</div>
+                    <div class="suggestion-text">当前有 {{ statistics.overdueOrders }} 个逾期工单，建议优先处理</div>
+                  </div>
+                </div>
+                
+                <div class="suggestion-card info">
+                  <div class="suggestion-icon">📊</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">数据监控</div>
+                    <div class="suggestion-text">建议定期监控完成率趋势，设置自动提醒机制</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 处理时间详细分析 -->
+          <div v-if="selectedStatType === 'processing' && statistics" class="stats-detail-content">
+            <!-- 处理时间概览 -->
+            <div class="stats-overview">
+              <div class="overview-card info">
+                <div class="overview-icon">⏱️</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ statistics.averageProcessingTime.toFixed(1) }}h</div>
+                  <div class="overview-label">平均处理时间</div>
+                </div>
+              </div>
+              <div class="overview-card success">
+                <div class="overview-icon">🚀</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ Math.max(0, 24 - statistics.averageProcessingTime).toFixed(1) }}h</div>
+                  <div class="overview-label">比24h标准快</div>
+                </div>
+              </div>
+              <div class="overview-card warning">
+                <div class="overview-icon">📈</div>
+                <div class="overview-content">
+                  <div class="overview-number">{{ statistics.completedOrders || 0 }}</div>
+                  <div class="overview-label">样本工单数</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 处理时间分析 -->
+            <div class="detail-section">
+              <h3>⏱️ 处理时间分析</h3>
+              <div class="processing-analysis">
+                <div class="time-chart">
+                  <div class="chart-title">处理效率指标</div>
+                  <div class="time-bars">
+                    <div class="time-bar">
+                      <div class="bar-label">当前平均时间</div>
+                      <div class="bar-container">
+                        <div 
+                          class="bar-fill current" 
+                          :style="{ width: Math.min(100, (statistics.averageProcessingTime / 48) * 100) + '%' }"
+                        ></div>
+                      </div>
+                      <div class="bar-value">{{ statistics.averageProcessingTime.toFixed(1) }}h</div>
+                    </div>
+                    
+                    <div class="time-bar">
+                      <div class="bar-label">目标处理时间</div>
+                      <div class="bar-container">
+                        <div class="bar-fill target" style="width: 50%"></div>
+                      </div>
+                      <div class="bar-value">24.0h</div>
+                    </div>
+                    
+                    <div class="time-bar">
+                      <div class="bar-label">最佳实践时间</div>
+                      <div class="bar-container">
+                        <div class="bar-fill best" style="width: 25%"></div>
+                      </div>
+                      <div class="bar-value">12.0h</div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="time-metrics">
+                  <div class="metric-item">
+                    <div class="metric-icon">🎯</div>
+                    <div class="metric-content">
+                      <div class="metric-title">效率评级</div>
+                      <div class="metric-value" :class="getEfficiencyGrade(statistics.averageProcessingTime)">
+                        {{ getEfficiencyGradeText(getEfficiencyGrade(statistics.averageProcessingTime)) }}
+                      </div>
+                      <div class="metric-desc">基于行业标准</div>
+                    </div>
+                  </div>
+                  
+                  <div class="metric-item">
+                    <div class="metric-icon">📊</div>
+                    <div class="metric-content">
+                      <div class="metric-title">相对表现</div>
+                      <div class="metric-value">{{ statistics.averageProcessingTime <= 24 ? '良好' : '需改进' }}</div>
+                      <div class="metric-desc">与24h标准对比</div>
+                    </div>
+                  </div>
+                  
+                  <div class="metric-item">
+                    <div class="metric-icon">⚡</div>
+                    <div class="metric-content">
+                      <div class="metric-title">改进空间</div>
+                      <div class="metric-value">{{ Math.max(0, statistics.averageProcessingTime - 12).toFixed(1) }}h</div>
+                      <div class="metric-desc">距离最佳实践</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 优化建议 -->
+            <div class="detail-section">
+              <h3>🔧 优化建议</h3>
+              <div class="optimization-suggestions">
+                <div v-if="statistics.averageProcessingTime > 36" class="suggestion-card priority">
+                  <div class="suggestion-icon">🚨</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">处理时间过长</div>
+                    <div class="suggestion-text">平均处理时间超过36小时，建议检查流程瓶颈并优化资源配置</div>
+                  </div>
+                </div>
+                
+                <div v-else-if="statistics.averageProcessingTime > 24" class="suggestion-card warning">
+                  <div class="suggestion-icon">⚠️</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">处理时间偏长</div>
+                    <div class="suggestion-text">处理时间超过24小时标准，建议优化工作流程或增加人员配置</div>
+                  </div>
+                </div>
+                
+                <div v-else class="suggestion-card success">
+                  <div class="suggestion-icon">✅</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">处理效率良好</div>
+                    <div class="suggestion-text">处理时间在合理范围内，继续保持当前流程</div>
+                  </div>
+                </div>
+                
+                <div class="suggestion-card info">
+                  <div class="suggestion-icon">📈</div>
+                  <div class="suggestion-content">
+                    <div class="suggestion-title">持续改进</div>
+                    <div class="suggestion-text">建议定期分析处理时间趋势，识别季节性变化和流程优化机会</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 权限信息说明 -->
+          <div v-if="currentUser" class="stats-permission-info">
+            <small>
+              📋 数据范围: 
+              <span v-if="currentUser.role === 'ADMIN'">全系统统计数据</span>
+              <span v-else-if="currentUser.role === 'DEPT_MANAGER'">{{ getDepartmentText(currentUser.department) }}统计数据</span>
+              <span v-else>{{ currentUser.organizationLevel }}统计数据</span>
+            </small>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 通知系统 -->
     <div class="notification-container">
       <transition-group name="notification" tag="div">
@@ -2679,8 +3243,24 @@ onMounted(() => {
           </div>
 
           <div class="detail-section">
-            <h3>基本信息</h3>
-            <div class="detail-grid">
+            <div class="section-header">
+              <h3>基本信息</h3>
+              <div v-if="!isEditingProfile" class="edit-actions">
+                <button @click="startEditProfile" class="btn btn-primary btn-sm">
+                  ✏️ 编辑资料
+                </button>
+              </div>
+              <div v-else class="edit-actions">
+                <button @click="saveProfileChanges" :disabled="loading" class="btn btn-success btn-sm">
+                  {{ loading ? '保存中...' : '💾 保存' }}
+                </button>
+                <button @click="cancelEditProfile" class="btn btn-secondary btn-sm">
+                  ❌ 取消
+                </button>
+              </div>
+            </div>
+            
+            <div v-if="!isEditingProfile" class="detail-grid">
               <div class="detail-item">
                 <label>用户名:</label>
                 <span>{{ currentUser?.username }}</span>
@@ -2694,6 +3274,10 @@ onMounted(() => {
                 <span>{{ currentUser?.email || '未设置' }}</span>
               </div>
               <div class="detail-item">
+                <label>电话:</label>
+                <span>{{ currentUser?.phone || '未设置' }}</span>
+              </div>
+              <div class="detail-item">
                 <label>角色:</label>
                 <span class="role-badge">{{ currentUser ? getRoleText(currentUser.role) : '' }}</span>
               </div>
@@ -2704,6 +3288,61 @@ onMounted(() => {
               <div class="detail-item">
                 <label>组织级别:</label>
                 <span>{{ currentUser?.organizationLevel }}</span>
+              </div>
+            </div>
+            
+            <div v-else class="edit-form">
+              <div class="edit-form-grid">
+                <div class="form-group">
+                  <label>用户名:</label>
+                  <span class="readonly-field">{{ currentUser?.username }}</span>
+                  <small class="field-note">用户名不可修改</small>
+                </div>
+                <div class="form-group">
+                  <label>真实姓名: <span class="required">*</span></label>
+                  <input 
+                    v-model="editingUserData.realName" 
+                    type="text" 
+                    required 
+                    placeholder="请输入真实姓名"
+                    class="form-control"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>邮箱:</label>
+                  <input 
+                    v-model="editingUserData.email" 
+                    type="email" 
+                    placeholder="请输入邮箱地址"
+                    class="form-control"
+                  />
+                  <small class="field-note">用于接收系统通知</small>
+                </div>
+                <div class="form-group">
+                  <label>电话:</label>
+                  <input 
+                    v-model="editingUserData.phone" 
+                    type="tel" 
+                    placeholder="请输入手机号码"
+                    class="form-control"
+                  />
+                  <small class="field-note">格式：11位手机号</small>
+                </div>
+                <div class="form-group">
+                  <label>角色:</label>
+                  <span class="readonly-field">{{ currentUser ? getRoleText(currentUser.role) : '' }}</span>
+                  <small class="field-note">角色权限由管理员设置</small>
+                </div>
+                <div class="form-group">
+                  <label>部门:</label>
+                  <span class="readonly-field">{{ currentUser ? getDepartmentText(currentUser.department) : '' }}</span>
+                  <small class="field-note">部门信息由管理员设置</small>
+                </div>
+                <div class="form-group">
+                  <label>组织级别:</label>
+                  <span class="readonly-field">{{ currentUser?.organizationLevel }}</span>
+                  <small class="field-note">组织级别由管理员设置</small>
+                </div>
               </div>
             </div>
           </div>
@@ -2995,7 +3634,48 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 15px;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.edit-form {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  border: 1px solid #e0e0e0;
+}
+
+.edit-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+}
+
+.readonly-field {
+  display: inline-block;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 5px;
+  color: #666;
+  font-style: italic;
+}
+
+.field-note {
+  display: block;
+  margin-top: 5px;
+  color: #666;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.required {
+  color: #dc3545;
+  font-weight: bold;
 }
 
 .stats-grid {
@@ -3610,7 +4290,265 @@ onMounted(() => {
   color: #333;
 }
 
-/* Responsive Design */
+/* 个人中心样式 */
+.personal-center-modal {
+  max-width: 800px;
+  max-height: 90vh;
+}
+
+.personal-info-section {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  margin: -30px -30px 25px -30px;
+  padding: 30px;
+  border-radius: 15px 15px 0 0;
+  color: white;
+}
+
+.avatar-section {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.avatar-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(10px);
+}
+
+.avatar-text {
+  font-size: 32px;
+  font-weight: bold;
+  color: white;
+  text-transform: uppercase;
+}
+
+.user-basic-info h3 {
+  margin: 0 0 8px 0;
+  font-size: 28px;
+  font-weight: 600;
+  color: white;
+}
+
+.user-role {
+  margin: 0;
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 12px;
+  border-radius: 15px;
+  display: inline-block;
+}
+
+.personal-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 15px;
+}
+
+.personal-stat-card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.personal-stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+  border-color: #007bff;
+}
+
+.personal-stat-card .stat-icon {
+  font-size: 2.5em;
+  opacity: 0.8;
+}
+
+.personal-stat-card .stat-content {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.personal-stat-card .stat-number {
+  font-size: 24px;
+  font-weight: bold;
+  color: #333;
+  line-height: 1;
+}
+
+.personal-stat-card .stat-label {
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
+}
+
+.permission-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.permission-card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  border-left: 4px solid #e0e0e0;
+  transition: all 0.3s ease;
+}
+
+.permission-card:hover {
+  transform: translateX(5px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+.permission-card.admin {
+  border-left-color: #dc3545;
+  background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
+}
+
+.permission-card.manager {
+  border-left-color: #007bff;
+  background: linear-gradient(135deg, #f0f8ff 0%, #e3f2fd 100%);
+}
+
+.permission-card.approver {
+  border-left-color: #28a745;
+  background: linear-gradient(135deg, #f0fff4 0%, #c6f6d5 100%);
+}
+
+.permission-card.operator {
+  border-left-color: #ffc107;
+  background: linear-gradient(135deg, #fffbf0 0%, #feebcb 100%);
+}
+
+.permission-card.user {
+  border-left-color: #6c757d;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.permission-icon {
+  font-size: 2em;
+  opacity: 0.8;
+}
+
+.permission-content {
+  flex: 1;
+}
+
+.permission-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 5px;
+}
+
+.permission-desc {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.4;
+}
+
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 15px;
+}
+
+.quick-action-btn {
+  background: white;
+  border: 2px solid #e0e0e0;
+  padding: 15px 20px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: #333;
+}
+
+.quick-action-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+}
+
+.quick-action-btn.create {
+  border-color: #28a745;
+  background: linear-gradient(135deg, #f0fff4 0%, #c6f6d5 100%);
+}
+
+.quick-action-btn.create:hover {
+  border-color: #20c997;
+  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+}
+
+.quick-action-btn.view {
+  border-color: #007bff;
+  background: linear-gradient(135deg, #f0f8ff 0%, #e3f2fd 100%);
+}
+
+.quick-action-btn.view:hover {
+  border-color: #0056b3;
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+}
+
+.quick-action-btn.approval {
+  border-color: #ffc107;
+  background: linear-gradient(135deg, #fffbf0 0%, #feebcb 100%);
+}
+
+.quick-action-btn.approval:hover {
+  border-color: #e0a800;
+  background: linear-gradient(135deg, #fff3cd 0%, #faeaae 100%);
+}
+
+.quick-action-btn.stats {
+  border-color: #17a2b8;
+  background: linear-gradient(135deg, #e6fffa 0%, #b2f5ea 100%);
+}
+
+.quick-action-btn.stats:hover {
+  border-color: #138496;
+  background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+}
+
+.action-icon {
+  font-size: 24px;
+}
+
+.action-text {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.role-badge {
+  background: #007bff;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 15px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* 响应式设计 */
 @media (max-width: 768px) {
   .header {
     flex-direction: column;
@@ -4206,7 +5144,7 @@ onMounted(() => {
 
 .suggestion-card:hover {
   transform: translateX(5px);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
 }
 
 .suggestion-card.priority {
@@ -4565,10 +5503,8 @@ onMounted(() => {
 .notification-move {
   transition: transform 0.4s ease;
 }
-</style>
 
 /* 个人中心样式 */
-<style scoped>
 .personal-center-modal {
   max-width: 800px;
   max-height: 90vh;
@@ -4826,6 +5762,55 @@ onMounted(() => {
   font-weight: 500;
 }
 
+/* 个人中心编辑样式 */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.edit-form {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  border: 1px solid #e0e0e0;
+}
+
+.edit-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+}
+
+.readonly-field {
+  display: inline-block;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 5px;
+  color: #666;
+  font-style: italic;
+}
+
+.field-note {
+  display: block;
+  margin-top: 5px;
+  color: #666;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.required {
+  color: #dc3545;
+  font-weight: bold;
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   .personal-center-modal {
@@ -4868,6 +5853,20 @@ onMounted(() => {
   .permission-card {
     flex-direction: column;
     text-align: center;
+  }
+  
+  .edit-form-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .section-header {
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+  
+  .edit-actions {
+    justify-content: center;
   }
 }
 </style>
