@@ -152,6 +152,17 @@ const closeDetailedStats = () => {
   selectedStatType.value = ''
 }
 
+// 个人中心
+const showPersonalCenter = ref(false)
+
+const openPersonalCenter = () => {
+  showPersonalCenter.value = true
+}
+
+const closePersonalCenter = () => {
+  showPersonalCenter.value = false
+}
+
 // 效率等级评定辅助函数
 const getEfficiencyGrade = (avgProcessingTime: number): string => {
   if (avgProcessingTime <= 2) return 'A+'
@@ -891,7 +902,7 @@ onMounted(() => {
           <h1>🔧 运维工单管理系统</h1>
         </div>
         <div class="header-right">
-          <span class="user-info">
+          <span class="user-info clickable" @click="openPersonalCenter">
             {{ currentUser?.realName }} ({{ currentUser ? getRoleText(currentUser.role) : '' }})
           </span>
           <button @click="logout" class="btn btn-secondary btn-sm">退出登录</button>
@@ -2646,6 +2657,164 @@ onMounted(() => {
         </div>
       </transition-group>
     </div>
+
+    <!-- 个人中心模态框 -->
+    <div v-if="showPersonalCenter" class="modal-overlay" @click="closePersonalCenter">
+      <div class="modal detail-modal personal-center-modal" @click.stop>
+        <div class="modal-header">
+          <h2>👤 个人中心</h2>
+          <button @click="closePersonalCenter" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="personal-info-section">
+            <div class="avatar-section">
+              <div class="avatar-circle">
+                <span class="avatar-text">{{ currentUser?.realName?.charAt(0) || 'U' }}</span>
+              </div>
+              <div class="user-basic-info">
+                <h3>{{ currentUser?.realName }}</h3>
+                <p class="user-role">{{ currentUser ? getRoleText(currentUser.role) : '' }}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h3>基本信息</h3>
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>用户名:</label>
+                <span>{{ currentUser?.username }}</span>
+              </div>
+              <div class="detail-item">
+                <label>真实姓名:</label>
+                <span>{{ currentUser?.realName }}</span>
+              </div>
+              <div class="detail-item">
+                <label>邮箱:</label>
+                <span>{{ currentUser?.email || '未设置' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>角色:</label>
+                <span class="role-badge">{{ currentUser ? getRoleText(currentUser.role) : '' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>部门:</label>
+                <span>{{ currentUser ? getDepartmentText(currentUser.department) : '' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>组织级别:</label>
+                <span>{{ currentUser?.organizationLevel }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h3>工作统计</h3>
+            <div class="personal-stats-grid">
+              <div class="personal-stat-card">
+                <div class="stat-icon">📝</div>
+                <div class="stat-content">
+                  <div class="stat-number">{{ workOrders.filter(wo => wo.creatorId === currentUser?.id).length }}</div>
+                  <div class="stat-label">创建的工单</div>
+                </div>
+              </div>
+              <div class="personal-stat-card">
+                <div class="stat-icon">✅</div>
+                <div class="stat-content">
+                  <div class="stat-number">{{ workOrders.filter(wo => wo.assigneeId === currentUser?.id && wo.status === 'COMPLETED').length }}</div>
+                  <div class="stat-label">完成的工单</div>
+                </div>
+              </div>
+              <div class="personal-stat-card">
+                <div class="stat-icon">⏳</div>
+                <div class="stat-content">
+                  <div class="stat-number">{{ workOrders.filter(wo => wo.assigneeId === currentUser?.id && ['ASSIGNED', 'IN_PROGRESS'].includes(wo.status || '')).length }}</div>
+                  <div class="stat-label">待处理工单</div>
+                </div>
+              </div>
+              <div v-if="currentUser && ['ADMIN', 'DEPT_MANAGER', 'APPROVER'].includes(currentUser.role)" class="personal-stat-card">
+                <div class="stat-icon">📋</div>
+                <div class="stat-content">
+                  <div class="stat-number">{{ workOrders.filter(wo => wo.approverId === currentUser?.id).length }}</div>
+                  <div class="stat-label">审批的工单</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h3>权限说明</h3>
+            <div class="permission-cards">
+              <div v-if="currentUser?.role === 'ADMIN'" class="permission-card admin">
+                <div class="permission-icon">👑</div>
+                <div class="permission-content">
+                  <div class="permission-title">系统管理员</div>
+                  <div class="permission-desc">拥有系统的完全访问权限，可以管理所有用户和工单</div>
+                </div>
+              </div>
+              
+              <div v-if="currentUser?.role === 'DEPT_MANAGER'" class="permission-card manager">
+                <div class="permission-icon">🏢</div>
+                <div class="permission-content">
+                  <div class="permission-title">部门经理</div>
+                  <div class="permission-desc">可以管理本部门的用户和工单，具有审批权限</div>
+                </div>
+              </div>
+              
+              <div v-if="currentUser?.role === 'APPROVER'" class="permission-card approver">
+                <div class="permission-icon">✅</div>
+                <div class="permission-content">
+                  <div class="permission-title">审批人员</div>
+                  <div class="permission-desc">可以审批工单，查看相关统计信息</div>
+                </div>
+              </div>
+              
+              <div v-if="currentUser?.role === 'OPERATOR'" class="permission-card operator">
+                <div class="permission-icon">🔧</div>
+                <div class="permission-content">
+                  <div class="permission-title">运维人员</div>
+                  <div class="permission-desc">负责处理和完成分配的工单</div>
+                </div>
+              </div>
+              
+              <div v-if="currentUser?.role === 'USER'" class="permission-card user">
+                <div class="permission-icon">👤</div>
+                <div class="permission-content">
+                  <div class="permission-title">普通用户</div>
+                  <div class="permission-desc">可以创建和管理自己的工单</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <h3>快速操作</h3>
+            <div class="quick-actions">
+              <button @click="closePersonalCenter(); activeTab = 'workorders'; showCreateForm = true" class="quick-action-btn create">
+                <span class="action-icon">➕</span>
+                <span class="action-text">创建工单</span>
+              </button>
+              
+              <button @click="closePersonalCenter(); activeTab = 'workorders'" class="quick-action-btn view">
+                <span class="action-icon">📋</span>
+                <span class="action-text">我的工单</span>
+              </button>
+              
+              <button v-if="currentUser && ['ADMIN', 'DEPT_MANAGER', 'APPROVER'].includes(currentUser.role)" 
+                      @click="closePersonalCenter(); activeTab = 'approval'" class="quick-action-btn approval">
+                <span class="action-icon">✅</span>
+                <span class="action-text">待审批</span>
+              </button>
+              
+              <button @click="closePersonalCenter(); activeTab = 'statistics'" class="quick-action-btn stats">
+                <span class="action-icon">📊</span>
+                <span class="action-text">统计报告</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -3306,6 +3475,15 @@ onMounted(() => {
   margin-right: 15px;
   font-weight: 500;
   color: white;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 20px;
+  transition: all 0.3s ease;
+}
+
+.user-info.clickable:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
 }
 
 .nav-tabs {
@@ -4386,5 +4564,310 @@ onMounted(() => {
 
 .notification-move {
   transition: transform 0.4s ease;
+}
+</style>
+
+/* 个人中心样式 */
+<style scoped>
+.personal-center-modal {
+  max-width: 800px;
+  max-height: 90vh;
+}
+
+.personal-info-section {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  margin: -30px -30px 25px -30px;
+  padding: 30px;
+  border-radius: 15px 15px 0 0;
+  color: white;
+}
+
+.avatar-section {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.avatar-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(10px);
+}
+
+.avatar-text {
+  font-size: 32px;
+  font-weight: bold;
+  color: white;
+  text-transform: uppercase;
+}
+
+.user-basic-info h3 {
+  margin: 0 0 8px 0;
+  font-size: 28px;
+  font-weight: 600;
+  color: white;
+}
+
+.user-role {
+  margin: 0;
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 12px;
+  border-radius: 15px;
+  display: inline-block;
+}
+
+.personal-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 15px;
+}
+
+.personal-stat-card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.personal-stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+  border-color: #007bff;
+}
+
+.personal-stat-card .stat-icon {
+  font-size: 2.5em;
+  opacity: 0.8;
+}
+
+.personal-stat-card .stat-content {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.personal-stat-card .stat-number {
+  font-size: 24px;
+  font-weight: bold;
+  color: #333;
+  line-height: 1;
+}
+
+.personal-stat-card .stat-label {
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
+}
+
+.permission-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.permission-card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  border-left: 4px solid #e0e0e0;
+  transition: all 0.3s ease;
+}
+
+.permission-card:hover {
+  transform: translateX(5px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+.permission-card.admin {
+  border-left-color: #dc3545;
+  background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
+}
+
+.permission-card.manager {
+  border-left-color: #007bff;
+  background: linear-gradient(135deg, #f0f8ff 0%, #e3f2fd 100%);
+}
+
+.permission-card.approver {
+  border-left-color: #28a745;
+  background: linear-gradient(135deg, #f0fff4 0%, #c6f6d5 100%);
+}
+
+.permission-card.operator {
+  border-left-color: #ffc107;
+  background: linear-gradient(135deg, #fffbf0 0%, #feebcb 100%);
+}
+
+.permission-card.user {
+  border-left-color: #6c757d;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.permission-icon {
+  font-size: 2em;
+  opacity: 0.8;
+}
+
+.permission-content {
+  flex: 1;
+}
+
+.permission-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 5px;
+}
+
+.permission-desc {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.4;
+}
+
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 15px;
+}
+
+.quick-action-btn {
+  background: white;
+  border: 2px solid #e0e0e0;
+  padding: 15px 20px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: #333;
+}
+
+.quick-action-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+}
+
+.quick-action-btn.create {
+  border-color: #28a745;
+  background: linear-gradient(135deg, #f0fff4 0%, #c6f6d5 100%);
+}
+
+.quick-action-btn.create:hover {
+  border-color: #20c997;
+  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+}
+
+.quick-action-btn.view {
+  border-color: #007bff;
+  background: linear-gradient(135deg, #f0f8ff 0%, #e3f2fd 100%);
+}
+
+.quick-action-btn.view:hover {
+  border-color: #0056b3;
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+}
+
+.quick-action-btn.approval {
+  border-color: #ffc107;
+  background: linear-gradient(135deg, #fffbf0 0%, #feebcb 100%);
+}
+
+.quick-action-btn.approval:hover {
+  border-color: #e0a800;
+  background: linear-gradient(135deg, #fff3cd 0%, #faeaae 100%);
+}
+
+.quick-action-btn.stats {
+  border-color: #17a2b8;
+  background: linear-gradient(135deg, #e6fffa 0%, #b2f5ea 100%);
+}
+
+.quick-action-btn.stats:hover {
+  border-color: #138496;
+  background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+}
+
+.action-icon {
+  font-size: 24px;
+}
+
+.action-text {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.role-badge {
+  background: #007bff;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 15px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .personal-center-modal {
+    max-width: 95%;
+    max-height: 95vh;
+  }
+  
+  .personal-info-section {
+    margin: -30px -20px 25px -20px;
+    padding: 20px;
+  }
+  
+  .avatar-section {
+    flex-direction: column;
+    text-align: center;
+    gap: 15px;
+  }
+  
+  .avatar-circle {
+    width: 60px;
+    height: 60px;
+  }
+  
+  .avatar-text {
+    font-size: 24px;
+  }
+  
+  .user-basic-info h3 {
+    font-size: 24px;
+  }
+  
+  .personal-stats-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .quick-actions {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .permission-card {
+    flex-direction: column;
+    text-align: center;
+  }
 }
 </style>
