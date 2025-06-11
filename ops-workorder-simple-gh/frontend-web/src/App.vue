@@ -229,7 +229,7 @@ const updateWorkOrder = async () => {
     const response = await axios.put(`${apiBase}/orders/${editingWorkOrder.value.id}`, payload)
     const index = workOrders.value.findIndex(wo => wo.id === editingWorkOrder.value!.id)
     if (index !== -1) {
-      workOrders.value[index] = response.data
+      workOrders.value[index] = response.data as WorkOrder
     }
     
     showEditForm.value = false
@@ -324,12 +324,13 @@ const login = async () => {
   try {
     const response = await axios.post(`${apiBase}/users/login`, loginForm)
     if (response.data) {
-      currentUser.value = response.data
+      const userData = response.data as User
+      currentUser.value = userData
       // 保存用户信息到localStorage
-      localStorage.setItem('currentUser', JSON.stringify(response.data))
+      localStorage.setItem('currentUser', JSON.stringify(userData))
       showLoginModal.value = false
       await loadData()
-      showNotification('success', '登录成功', `欢迎回来，${response.data.realName}！`)
+      showNotification('success', '登录成功', `欢迎回来，${userData.realName}！`)
       startAutoRefresh()
     } else {
       showNotification('error', '登录失败', '用户名或密码错误')
@@ -374,11 +375,12 @@ const loadPendingApprovals = async () => {
     if (currentUser.value.role === 'ADMIN' || currentUser.value.role === 'DEPT_MANAGER') {
       // Admin和部门经理用户可以看到所有待审批工单
       const response = await axios.get(`${apiBase}/orders`)
-      pendingApprovals.value = response.data.filter((wo: WorkOrder) => wo.status === 'SUBMITTED')
+      const orders = response.data as WorkOrder[]
+      pendingApprovals.value = orders.filter((wo: WorkOrder) => wo.status === 'SUBMITTED')
     } else {
       // 其他用户只能看到分配给自己的待审批工单
       const response = await axios.get(`${apiBase}/orders/pending-approvals?approverId=${currentUser.value.id}`)
-      pendingApprovals.value = response.data
+      pendingApprovals.value = response.data as WorkOrder[]
     }
   } catch (error) {
     console.error('加载待审批工单失败:', error)
@@ -389,7 +391,7 @@ const loadWorkOrders = async () => {
   loading.value = true
   try {
     const response = await axios.get(`${apiBase}/orders`)
-    workOrders.value = response.data
+    workOrders.value = response.data as WorkOrder[]
   } catch (error) {
     console.error('加载工单失败:', error)
   } finally {
@@ -400,7 +402,7 @@ const loadWorkOrders = async () => {
 const loadUsers = async () => {
   try {
     const response = await axios.get(`${apiBase}/users`)
-    users.value = response.data
+    users.value = response.data as User[]
   } catch (error) {
     console.error('加载用户失败:', error)
   }
@@ -436,7 +438,7 @@ const loadStatistics = async () => {
     }
     
     const response = await axios.get(statisticsUrl)
-    statistics.value = response.data
+    statistics.value = response.data as Statistics
   } catch (error) {
     console.error('加载统计数据失败:', error)
     // 如果总体统计失败，回退到今日统计
@@ -460,7 +462,7 @@ const loadStatistics = async () => {
       
       fallbackUrl = `${apiBase}/statistics/daily?${params.toString()}`
       const fallbackResponse = await axios.get(fallbackUrl)
-      statistics.value = fallbackResponse.data
+      statistics.value = fallbackResponse.data as Statistics
     } catch (fallbackError) {
       console.error('加载今日统计数据也失败:', fallbackError)
     }
@@ -483,7 +485,7 @@ const createUser = async () => {
       ...newUser
     }
     const response = await axios.post(`${apiBase}/users`, userData)
-    users.value.push(response.data)
+    users.value.push(response.data as User)
     
     // 重置表单
     Object.assign(newUser, {
@@ -513,7 +515,7 @@ const createWorkOrder = async () => {
       ...newWorkOrder
     }
     const response = await axios.post(`${apiBase}/orders?creatorId=${currentUser.value?.id}`, payload)
-    workOrders.value.push(response.data)
+    workOrders.value.push(response.data as WorkOrder)
     
     // 重置表单
     Object.assign(newWorkOrder, {
@@ -539,7 +541,7 @@ const submitWorkOrder = async (id: number) => {
     const response = await axios.post(`${apiBase}/orders/${id}/submit?userId=${currentUser.value?.id}`)
     const index = workOrders.value.findIndex(wo => wo.id === id)
     if (index !== -1) {
-      workOrders.value[index] = response.data
+      workOrders.value[index] = response.data as WorkOrder
     }
     showNotification('success', '提交成功', '工单提交成功！')
   } catch (error) {
@@ -559,7 +561,7 @@ const approveWorkOrder = async (id: number) => {
     const response = await axios.post(`${apiBase}/orders/${id}/approve?approverId=${currentUser.value?.id}`, payload)
     const index = workOrders.value.findIndex(wo => wo.id === id)
     if (index !== -1) {
-      workOrders.value[index] = response.data
+      workOrders.value[index] = response.data as WorkOrder
     }
     // 重新加载待审批工单列表和所有工单
     await loadPendingApprovals()
@@ -582,7 +584,7 @@ const rejectWorkOrder = async (id: number) => {
     const response = await axios.post(`${apiBase}/orders/${id}/reject?approverId=${currentUser.value?.id}`, payload)
     const index = workOrders.value.findIndex(wo => wo.id === id)
     if (index !== -1) {
-      workOrders.value[index] = response.data
+      workOrders.value[index] = response.data as WorkOrder
     }
     // 重新加载待审批工单列表和所有工单
     await loadPendingApprovals()
@@ -602,7 +604,7 @@ const assignWorkOrder = async (id: number, assigneeId: number) => {
     const response = await axios.post(`${apiBase}/orders/${id}/assign?assigneeId=${assigneeId}&assignerId=${currentUser.value?.id}`)
     const index = workOrders.value.findIndex(wo => wo.id === id)
     if (index !== -1) {
-      workOrders.value[index] = response.data
+      workOrders.value[index] = response.data as WorkOrder
     }
     showNotification('success', '分派成功', '工单分派成功！')
   } catch (error) {
@@ -622,7 +624,7 @@ const completeWorkOrder = async (id: number) => {
     const response = await axios.post(`${apiBase}/orders/${id}/complete?operatorId=${currentUser.value?.id}`, payload)
     const index = workOrders.value.findIndex(wo => wo.id === id)
     if (index !== -1) {
-      workOrders.value[index] = response.data
+      workOrders.value[index] = response.data as WorkOrder
     }
     showNotification('success', '完成成功', '工单已完成！')
   } catch (error) {
@@ -646,7 +648,7 @@ const batchAssignWorkOrders = async (workOrderIds: number[], assigneeId: number)
     responses.forEach((response, index) => {
       const workOrderIndex = workOrders.value.findIndex(wo => wo.id === workOrderIds[index])
       if (workOrderIndex !== -1) {
-        workOrders.value[workOrderIndex] = response.data
+        workOrders.value[workOrderIndex] = response.data as WorkOrder
       }
     })
     
