@@ -132,15 +132,115 @@ const closeWorkOrderDetail = () => {
 // 用户详情
 const selectedUser = ref<User | null>(null)
 const showUserDetail = ref(false)
+const isEditingUser = ref(false)
+const editingSelectedUserData = ref({
+  realName: '',
+  email: '',
+  phone: '',
+  role: '',
+  department: '',
+  organizationLevel: '',
+  enabled: true
+})
 
 const showUserDetailModal = (user: User) => {
   selectedUser.value = user
   showUserDetail.value = true
+  isEditingUser.value = false
 }
 
 const closeUserDetail = () => {
   selectedUser.value = null
   showUserDetail.value = false
+  isEditingUser.value = false
+}
+
+const startEditUser = () => {
+  if (!selectedUser.value) return
+  isEditingUser.value = true
+  editingSelectedUserData.value = {
+    realName: selectedUser.value.realName || '',
+    email: selectedUser.value.email || '',
+    phone: selectedUser.value.phone || '',
+    role: selectedUser.value.role || '',
+    department: selectedUser.value.department || '',
+    organizationLevel: selectedUser.value.organizationLevel || '',
+    enabled: selectedUser.value.enabled !== false
+  }
+}
+
+const cancelEditUser = () => {
+  isEditingUser.value = false
+  editingSelectedUserData.value = {
+    realName: '',
+    email: '',
+    phone: '',
+    role: '',
+    department: '',
+    organizationLevel: '',
+    enabled: true
+  }
+}
+
+const saveUserChanges = async () => {
+  if (!selectedUser.value?.id) return
+  
+  loading.value = true
+  try {
+    // 基本验证
+    if (!editingSelectedUserData.value.realName.trim()) {
+      showNotification('error', '保存失败', '真实姓名不能为空')
+      return
+    }
+    
+    if (editingSelectedUserData.value.email && !isValidEmail(editingSelectedUserData.value.email)) {
+      showNotification('error', '保存失败', '请输入有效的邮箱地址')
+      return
+    }
+    
+    if (editingSelectedUserData.value.phone && !isValidPhone(editingSelectedUserData.value.phone)) {
+      showNotification('error', '保存失败', '请输入有效的电话号码')
+      return
+    }
+    
+    const updateData = {
+      id: selectedUser.value.id,
+      realName: editingSelectedUserData.value.realName.trim(),
+      email: editingSelectedUserData.value.email.trim() || undefined,
+      phone: editingSelectedUserData.value.phone.trim() || undefined,
+      role: editingSelectedUserData.value.role,
+      department: editingSelectedUserData.value.department,
+      organizationLevel: editingSelectedUserData.value.organizationLevel,
+      enabled: editingSelectedUserData.value.enabled
+    }
+    
+    const response = await axios.put(`http://localhost:8080/api/users/${selectedUser.value.id}`, updateData)
+    const updatedUser = response.data as User
+    
+    // 更新选中的用户信息
+    selectedUser.value = { ...selectedUser.value, ...updatedUser }
+    
+    // 更新用户列表中的对应用户
+    const userIndex = users.value.findIndex(u => u.id === selectedUser.value!.id)
+    if (userIndex !== -1) {
+      users.value[userIndex] = updatedUser
+    }
+    
+    // 如果修改的是当前用户，同时更新当前用户信息
+    if (currentUser.value?.id === selectedUser.value.id) {
+      currentUser.value = { ...currentUser.value, ...updatedUser }
+      localStorage.setItem('currentUser', JSON.stringify(currentUser.value))
+    }
+    
+    isEditingUser.value = false
+    showNotification('success', '保存成功', '用户信息已更新')
+    
+  } catch (error) {
+    console.error('保存用户信息失败:', error)
+    showNotification('error', '保存失败', '更新用户信息时发生错误')
+  } finally {
+    loading.value = false
+  }
 }
 
 // 详细统计视图
@@ -1893,13 +1993,25 @@ onMounted(() => {
     <div v-if="showUserDetail && selectedUser" class="modal-overlay" @click="closeUserDetail">
       <div class="modal detail-modal" @click.stop>
         <div class="modal-header">
-          <h2>👤 用户详情</h2>
-          <button @click="closeUserDetail" class="close-btn">&times;</button>
+          <h2>👤 {{ isEditingUser ? '编辑用户' : '用户详情' }}</h2>
+          <div class="header-actions">
+            <!-- 只有管理员和部门管理员可以编辑其他用户 -->
+            <button 
+              v-if="!isEditingUser && currentUser && ['ADMIN', 'DEPT_MANAGER'].includes(currentUser.role) && selectedUser.id !== currentUser.id"
+              @click="startEditUser"
+              class="btn btn-primary btn-sm"
+            >
+              编辑
+            </button>
+            <button @click="closeUserDetail" class="close-btn">&times;</button>
+          </div>
         </div>
         <div class="modal-body">
           <div class="detail-section">
             <h3>基本信息</h3>
-            <div class="detail-grid">
+            
+            <!-- 查看模式 -->
+            <div v-if="!isEditingUser" class="detail-grid">
               <div class="detail-item">
                 <label>真实姓名:</label>
                 <span>{{ selectedUser.realName }}</span>
@@ -1911,6 +2023,10 @@ onMounted(() => {
               <div class="detail-item">
                 <label>邮箱:</label>
                 <span>{{ selectedUser.email }}</span>
+              </div>
+              <div class="detail-item">
+                <label>电话:</label>
+                <span>{{ selectedUser.phone || '未设置' }}</span>
               </div>
               <div class="detail-item">
                 <label>角色:</label>
@@ -1929,6 +2045,97 @@ onMounted(() => {
                 <span :class="['status-badge', selectedUser.enabled ? 'enabled' : 'disabled']">
                   {{ selectedUser.enabled ? '启用' : '禁用' }}
                 </span>
+              </div>
+            </div>
+            
+            <!-- 编辑模式 -->
+            <div v-else class="edit-form">
+              <div class="form-group">
+                <label>真实姓名 <span class="required">*</span>:</label>
+                <input 
+                  v-model="editingSelectedUserData.realName" 
+                  type="text" 
+                  class="form-input"
+                  placeholder="请输入真实姓名"
+                />
+              </div>
+              <div class="form-group">
+                <label>用户名:</label>
+                <input 
+                  :value="selectedUser.username" 
+                  type="text" 
+                  class="form-input"
+                  disabled
+                  title="用户名不可修改"
+                />
+              </div>
+              <div class="form-group">
+                <label>邮箱 <span class="required">*</span>:</label>
+                <input 
+                  v-model="editingSelectedUserData.email" 
+                  type="email" 
+                  class="form-input"
+                  placeholder="请输入邮箱地址"
+                />
+              </div>
+              <div class="form-group">
+                <label>电话:</label>
+                <input 
+                  v-model="editingSelectedUserData.phone" 
+                  type="tel" 
+                  class="form-input"
+                  placeholder="请输入电话号码"
+                />
+              </div>
+              <div class="form-group">
+                <label>角色 <span class="required">*</span>:</label>
+                <select v-model="editingSelectedUserData.role" class="form-select">
+                  <option value="USER">普通用户</option>
+                  <option value="DEPT_MANAGER">部门管理员</option>
+                  <option value="ADMIN">系统管理员</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>部门 <span class="required">*</span>:</label>
+                <select v-model="editingSelectedUserData.department" class="form-select">
+                  <option value="IT">IT部门</option>
+                  <option value="HR">人力资源部</option>
+                  <option value="FINANCE">财务部</option>
+                  <option value="OPERATIONS">运营部</option>
+                  <option value="MARKETING">市场部</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>组织级别:</label>
+                <input 
+                  v-model="editingSelectedUserData.organizationLevel" 
+                  type="text" 
+                  class="form-input"
+                  placeholder="请输入组织级别"
+                />
+              </div>
+              <div class="form-group">
+                <label>账户状态:</label>
+                <div class="checkbox-group">
+                  <label class="checkbox-label">
+                    <input 
+                      v-model="editingSelectedUserData.enabled" 
+                      type="checkbox"
+                    />
+                    <span class="checkmark"></span>
+                    启用账户
+                  </label>
+                </div>
+              </div>
+              
+              <!-- 编辑操作按钮 -->
+              <div class="form-actions">
+                <button @click="cancelEditUser" class="btn btn-secondary">
+                  取消
+                </button>
+                <button @click="saveUserChanges" class="btn btn-primary">
+                  保存更改
+                </button>
               </div>
             </div>
           </div>
@@ -2379,53 +2586,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 用户详情模态框 -->
-    <div v-if="showUserDetail && selectedUser" class="modal-overlay" @click="closeUserDetail">
-      <div class="modal detail-modal" @click.stop>
-        <div class="modal-header">
-          <h2>👤 用户详情</h2>
-          <button @click="closeUserDetail" class="close-btn">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="detail-section">
-            <h3>基本信息</h3>
-            <div class="detail-grid">
-              <div class="detail-item">
-                <label>真实姓名:</label>
-                <span>{{ selectedUser.realName }}</span>
-              </div>
-              <div class="detail-item">
-                <label>用户名:</label>
-                <span>{{ selectedUser.username }}</span>
-              </div>
-              <div class="detail-item">
-                <label>邮箱:</label>
-                <span>{{ selectedUser.email }}</span>
-              </div>
-              <div class="detail-item">
-                <label>角色:</label>
-                <span class="role-badge">{{ getRoleText(selectedUser.role) }}</span>
-              </div>
-              <div class="detail-item">
-                <label>部门:</label>
-                <span>{{ getDepartmentText(selectedUser.department) }}</span>
-              </div>
-              <div class="detail-item">
-                <label>组织级别:</label>
-                <span>{{ selectedUser.organizationLevel }}</span>
-              </div>
-              <div class="detail-item">
-                <label>账户状态:</label>
-                <span :class="['status-badge', selectedUser.enabled ? 'enabled' : 'disabled']">
-                  {{ selectedUser.enabled ? '启用' : '禁用' }}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- 详细统计模态框 -->
     <div v-if="showDetailedStats" class="modal-overlay" @click="closeDetailedStats">
       <div class="modal detail-modal stats-modal" @click.stop>
@@ -2865,53 +3025,6 @@ onMounted(() => {
               </button>
             </div>
           </form>
-        </div>
-      </div>
-    </div>
-
-    <!-- 用户详情模态框 -->
-    <div v-if="showUserDetail && selectedUser" class="modal-overlay" @click="closeUserDetail">
-      <div class="modal detail-modal" @click.stop>
-        <div class="modal-header">
-          <h2>👤 用户详情</h2>
-          <button @click="closeUserDetail" class="close-btn">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="detail-section">
-            <h3>基本信息</h3>
-            <div class="detail-grid">
-              <div class="detail-item">
-                <label>真实姓名:</label>
-                <span>{{ selectedUser.realName }}</span>
-              </div>
-              <div class="detail-item">
-                <label>用户名:</label>
-                <span>{{ selectedUser.username }}</span>
-              </div>
-              <div class="detail-item">
-                <label>邮箱:</label>
-                <span>{{ selectedUser.email }}</span>
-              </div>
-              <div class="detail-item">
-                <label>角色:</label>
-                <span class="role-badge">{{ getRoleText(selectedUser.role) }}</span>
-              </div>
-              <div class="detail-item">
-                <label>部门:</label>
-                <span>{{ getDepartmentText(selectedUser.department) }}</span>
-              </div>
-              <div class="detail-item">
-                <label>组织级别:</label>
-                <span>{{ selectedUser.organizationLevel }}</span>
-              </div>
-              <div class="detail-item">
-                <label>账户状态:</label>
-                <span :class="['status-badge', selectedUser.enabled ? 'enabled' : 'disabled']">
-                  {{ selectedUser.enabled ? '启用' : '禁用' }}
-                </span>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -5867,6 +5980,101 @@ onMounted(() => {
   
   .edit-actions {
     justify-content: center;
+  }
+}
+
+/* 用户编辑功能样式 */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.edit-form {
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+  color: #333;
+}
+
+.required {
+  color: #dc3545;
+}
+
+.form-input, .form-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.form-input:focus, .form-select:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.form-input:disabled {
+  background-color: #f8f9fa;
+  color: #6c757d;
+  cursor: not-allowed;
+}
+
+.checkbox-group {
+  margin-top: 5px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.checkmark {
+  display: inline-block;
+  font-size: 14px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 25px;
+  padding-top: 20px;
+  border-top: 1px solid #eee;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .edit-form {
+    max-width: 100%;
+  }
+  
+  .form-actions {
+    flex-direction: column;
+  }
+  
+  .header-actions {
+    flex-direction: column;
+    gap: 8px;
   }
 }
 </style>
