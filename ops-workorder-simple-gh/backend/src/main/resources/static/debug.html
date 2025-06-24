@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网络调试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .log {
+            background-color: #f8f9fa;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>移动端网络调试</h1>
+    
+    <div class="test-section">
+        <h3>环境检测</h3>
+        <div id="environment-info" class="info">
+            检测环境信息中...
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h3>API连接测试</h3>
+        <button onclick="testAPI()">测试API连接</button>
+        <button onclick="testLogin()">测试登录</button>
+        <div id="api-status" class="status"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>详细日志</h3>
+        <button onclick="clearLog()">清除日志</button>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        const log = document.getElementById('log');
+        const apiStatus = document.getElementById('api-status');
+        const environmentInfo = document.getElementById('environment-info');
+
+        function logMessage(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            log.textContent += `[${timestamp}] ${message}\n`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function clearLog() {
+            log.textContent = '';
+        }
+
+        function showStatus(message, type = 'info') {
+            apiStatus.textContent = message;
+            apiStatus.className = `status ${type}`;
+        }
+
+        // 检测环境信息
+        function detectEnvironment() {
+            const isCapacitor = window.Capacitor?.isNativePlatform();
+            const isAndroid = window.Capacitor?.getPlatform() === 'android';
+            const currentURL = window.location.href;
+            const userAgent = navigator.userAgent;
+            
+            let apiBaseURL;
+            if (isCapacitor) {
+                apiBaseURL = 'http://10.0.2.2:8080/api';
+            } else {
+                apiBaseURL = 'http://localhost:8080/api';
+            }
+
+            const info = `
+运行环境: ${isCapacitor ? 'Capacitor 原生应用' : 'Web 浏览器'}
+平台: ${isCapacitor ? window.Capacitor.getPlatform() : 'Web'}
+当前URL: ${currentURL}
+API基础URL: ${apiBaseURL}
+User Agent: ${userAgent}
+            `;
+
+            environmentInfo.textContent = info;
+            logMessage('环境检测完成');
+            logMessage(info);
+
+            return { isCapacitor, isAndroid, apiBaseURL };
+        }
+
+        async function testAPI() {
+            showStatus('测试API连接中...', 'info');
+            logMessage('开始测试API连接');
+
+            const { apiBaseURL } = detectEnvironment();
+            
+            // 如果是Capacitor环境，测试多个IP地址
+            const possibleIPs = ['10.0.2.2', '10.197.76.173', 'localhost'];
+            
+            for (const ip of possibleIPs) {
+                const testURL = `http://${ip}:8080/api/users`;
+                logMessage(`尝试连接: ${testURL}`);
+                
+                try {
+                    const response = await fetch(testURL, {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        timeout: 5000
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        showStatus(`API连接成功！IP: ${ip}，获取到 ${data.length} 个用户`, 'success');
+                        logMessage(`API连接成功，IP: ${ip}，状态码: ${response.status}`);
+                        logMessage(`返回数据: ${JSON.stringify(data, null, 2)}`);
+                        return; // 成功后退出循环
+                    } else {
+                        logMessage(`IP ${ip} 连接失败，状态码: ${response.status}`);
+                    }
+                } catch (error) {
+                    logMessage(`IP ${ip} 网络错误: ${error.message}`);
+                }
+            }
+            
+            showStatus('所有IP地址都无法连接', 'error');
+        }
+
+        async function testLogin() {
+            showStatus('测试登录中...', 'info');
+            logMessage('开始测试登录');
+
+            const loginData = {
+                username: 'admin',
+                password: 'newpassword123'
+            };
+
+            const possibleIPs = ['10.0.2.2', '10.197.76.173', 'localhost'];
+            
+            for (const ip of possibleIPs) {
+                const testURL = `http://${ip}:8080/api/users/login`;
+                logMessage(`尝试登录: ${testURL}`);
+                
+                try {
+                    const response = await fetch(testURL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(loginData)
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data && data.username) {
+                            showStatus(`登录成功！IP: ${ip}，欢迎 ${data.realName}`, 'success');
+                            logMessage(`登录成功，IP: ${ip}，用户: ${data.username} (${data.realName})`);
+                            logMessage(`用户信息: ${JSON.stringify(data, null, 2)}`);
+                            return; // 成功后退出循环
+                        } else {
+                            logMessage(`IP ${ip} 登录失败：返回数据为空或无效`);
+                        }
+                    } else {
+                        logMessage(`IP ${ip} 登录失败，状态码: ${response.status}`);
+                    }
+                } catch (error) {
+                    logMessage(`IP ${ip} 登录网络错误: ${error.message}`);
+                }
+            }
+            
+            showStatus('所有IP地址都无法登录', 'error');
+        }
+
+        // 页面加载时自动检测环境
+        window.addEventListener('load', () => {
+            detectEnvironment();
+        });
+    </script>
+</body>
+</html>

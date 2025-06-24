@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
 import axios from 'axios'
+import { API_CONFIG } from './config/mobile'
 
 interface User {
   id: number
@@ -457,7 +458,22 @@ const clearFilters = () => {
   creatorFilter.value = ''
 }
 
-const apiBase = 'http://localhost:8080/api'
+// API 配置 - 根据运行环境自动选择
+const getApiBase = () => {
+  // 检查是否在Capacitor环境中（Android应用）
+  const isCapacitor = (window as any).Capacitor?.isNativePlatform();
+  
+  if (isCapacitor) {
+    // Android应用环境，使用移动端配置
+    return API_CONFIG.current.baseURL;
+  } else {
+    // Web浏览器环境
+    return 'http://localhost:8080/api';
+  }
+}
+
+const apiBase = getApiBase()
+console.log('使用API基础URL:', apiBase)
 
 // 通知系统函数
 let notificationId = 0
