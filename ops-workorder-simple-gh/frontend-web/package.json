@@ -3,12 +3,18 @@
   "version": "0.0.1",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "android:build": "npm run build && npx cap sync android",
+    "android:dev": "npm run build && npx cap run android --livereload",
+    "android:open": "npx cap open android"
   },
   "dependencies": {
+    "@capacitor/android": "^7.4.0",
+    "@capacitor/cli": "^7.4.0",
+    "@capacitor/core": "^7.4.0",
+    "axios": "^1.6.7",
     "vue": "^3.4.0",
-    "vue-router": "^4.3.0",
-    "axios": "^1.6.7"
+    "vue-router": "^4.3.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",

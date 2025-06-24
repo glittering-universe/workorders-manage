@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">OpsWorkOrder</string>
+    <string name="title_activity_main">OpsWorkOrder</string>
+    <string name="package_name">com.opsworkorder.app</string>
+    <string name="custom_url_scheme">com.opsworkorder.app</string>
+</resources>
