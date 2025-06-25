@@ -13,7 +13,7 @@ const getLocalIP = () => {
   if (isAndroidEmulator) {
     return '10.0.2.2';      // Android模拟器
   } else {
-    return '10.197.76.173';  // 真机访问本机IP
+    return '10.195.66.17';  // 真机访问本机IP
   }
 };
 
@@ -71,7 +71,7 @@ import axios from 'axios';
 export const createMobileApi = async () => {
   const possibleIPs = [
     '10.0.2.2',        // Android模拟器
-    '10.197.76.173',   // 本机IP地址
+    '10.195.66.17',   // 本机IP地址
     'localhost'        // 本地开发
   ];
 
